@@ -1,0 +1,2 @@
+- [Supply Chain Control Tower project](project_control_tower.md) — TS/React + FastAPI control tower at .start/, milestone-driven, M1–M3 done
+- [Don't run next build during dev](feedback_next_build_verification.md) — verification builds break the user's live dev server with module-not-found errors

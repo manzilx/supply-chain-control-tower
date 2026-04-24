@@ -1,0 +1,211 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #09111a;
+  --bg-secondary: #0f1b27;
+  --panel: rgba(9, 18, 28, 0.82);
+  --panel-strong: rgba(14, 26, 40, 0.96);
+  --line: rgba(132, 165, 191, 0.18);
+  --text: #edf3f8;
+  --muted: #9db0c1;
+  --accent: #57d4c0;
+  --accent-strong: #11b29e;
+  --warning: #f0b44c;
+  --danger: #ff7575;
+  --steady: #8caac7;
+  --shadow: 0 28px 60px rgba(2, 6, 12, 0.42);
+  --radius: 24px;
+  --radius-sm: 18px;
+  --font-sans: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", monospace;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(87, 212, 192, 0.12), transparent 30%),
+    radial-gradient(circle at 100% 8%, rgba(240, 180, 76, 0.10), transparent 26%),
+    linear-gradient(180deg, #071018 0%, #0b1420 55%, #101927 100%);
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+
+body {
+  position: relative;
+}
+
+.app-grid-backdrop {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), transparent 90%);
+  z-index: 0;
+}
+
+.panel {
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+  padding: 24px;
+}
+
+.panel-sm {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  padding: 18px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 6px 12px;
+  color: var(--accent);
+  background: rgba(87, 212, 192, 0.12);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.severity-low {
+  background: rgba(140, 170, 199, 0.14);
+  color: var(--steady);
+}
+
+.severity-medium {
+  background: rgba(240, 180, 76, 0.15);
+  color: var(--warning);
+}
+
+.severity-high {
+  background: rgba(255, 117, 117, 0.14);
+  color: #ff9187;
+}
+
+.severity-critical {
+  background: rgba(255, 117, 117, 0.2);
+  color: var(--danger);
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 10px 12px;
+  background: rgba(3, 10, 18, 0.74);
+  color: var(--text);
+  font: inherit;
+}
+
+textarea {
+  resize: vertical;
+  font-family: var(--font-mono);
+  line-height: 1.45;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: 2px solid rgba(87, 212, 192, 0.24);
+  border-color: rgba(87, 212, 192, 0.52);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  transition: transform 140ms ease, opacity 140ms ease, background 140ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.btn-primary {
+  color: #071018;
+  background: linear-gradient(135deg, var(--accent), #a0eedf);
+}
+
+.btn-secondary {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+table.data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.9rem;
+}
+
+table.data-table th,
+table.data-table td {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+table.data-table th {
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: rgba(255, 255, 255, 0.02);
+  position: sticky;
+  top: 0;
+}
+
+table.data-table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.section-title {
+  color: var(--warning);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
