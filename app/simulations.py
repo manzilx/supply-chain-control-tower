@@ -41,8 +41,8 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _suppliers() -> Dict[str, SupplierRecord]:
-    return {s.name: s for s in build_demo_request().suppliers}
+def _suppliers(tenant_id: Optional[str] = None) -> Dict[str, SupplierRecord]:
+    return {s.name: s for s in build_demo_request(tenant_id or "arcforge").suppliers}
 
 
 def _project_name(pid: str) -> str:
@@ -414,14 +414,22 @@ def _simulate_alt_vendor(current: str, alternate: str) -> SimulationResult:
 # --- Dispatcher --------------------------------------------------------------
 
 
-def run_simulation(request: SimulationRequest) -> SimulationResult:
+def run_simulation(
+    request: SimulationRequest,
+    tenant_id: Optional[str] = None,
+) -> SimulationResult:
+    # tenant_id is plumbed in for future per-tenant scoping of vendor/PO
+    # lookups inside _simulate_*. Today these still read from the
+    # global sample_data + sourcing stores; the parameter keeps the route
+    # signature ready for that work.
+    _ = tenant_id
     if request.scenario == "vendor_slip_2w":
-        return _simulate_vendor_slip(
+        result = _simulate_vendor_slip(
             request.target, request.custom_slip_days or DEFAULT_SLIP_DAYS
         )
-    if request.scenario == "customs_hold":
-        return _simulate_customs_hold(request.target)
-    if request.scenario == "alt_vendor":
+    elif request.scenario == "customs_hold":
+        result = _simulate_customs_hold(request.target)
+    elif request.scenario == "alt_vendor":
         if not request.alternate_vendor:
             return SimulationResult(
                 scenario="alt_vendor",
@@ -436,5 +444,45 @@ def run_simulation(request: SimulationRequest) -> SimulationResult:
                 mitigations=[],
                 assumptions=[],
             )
-        return _simulate_alt_vendor(request.target, request.alternate_vendor)
-    raise ValueError(f"Unknown scenario: {request.scenario}")
+        result = _simulate_alt_vendor(request.target, request.alternate_vendor)
+    else:
+        raise ValueError(f"Unknown scenario: {request.scenario}")
+
+    # Decorate with LLM-generated narrative if Grok is configured.
+    result.narrative = _llm_simulation_narrative(request, result)
+    return result
+
+
+def _llm_simulation_narrative(
+    request: SimulationRequest, result: SimulationResult
+) -> Optional[str]:
+    from .llm import grok_chat, is_enabled
+
+    if not is_enabled():
+        return None
+
+    import json as _json
+    context = {
+        "scenario": request.scenario,
+        "target": request.target,
+        "alternate_vendor": request.alternate_vendor,
+        "headline": result.headline,
+        "severity": result.severity,
+        "cost_delta_usd": result.cost_delta_usd,
+        "schedule_delta_days": result.schedule_delta_days,
+        "affected_items_count": len(result.affected_items),
+        "milestone_impacts": [
+            {"milestone": m.milestone_name, "slip_days": m.slip_days}
+            for m in result.milestone_impacts
+        ],
+        "mitigations": result.mitigations,
+    }
+    system = (
+        "You are an EPC project controls analyst. Given the result of a what-if "
+        "supply-chain simulation, write a 2-paragraph executive narrative for the "
+        "project sponsor. Paragraph 1: what happens and why it matters (cite cost "
+        "delta, schedule slip, named milestones). Paragraph 2: what we'd do about "
+        "it, citing the mitigations. Plain prose, no markdown. ≤180 words."
+    )
+    user = "Simulation result:\n" + _json.dumps(context, default=str, indent=2)
+    return grok_chat(system, user, max_tokens=500, temperature=0.3, timeout=25)

@@ -3,45 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-type NavItem = {
-  href: string;
-  label: string;
-  group: "plan" | "sourcing" | "monitor" | "operate" | "intelligence";
-};
-
-const NAV: NavItem[] = [
-  { href: "/projects", label: "Projects", group: "plan" },
-  { href: "/sourcing", label: "Sourcing", group: "sourcing" },
-  { href: "/overview", label: "Overview", group: "monitor" },
-  { href: "/weekly-plan", label: "Weekly Plan", group: "monitor" },
-  { href: "/risks", label: "Risks", group: "monitor" },
-  { href: "/actions", label: "Actions", group: "monitor" },
-  { href: "/vendors", label: "Vendors", group: "operate" },
-  { href: "/expediting", label: "Expediting", group: "operate" },
-  { href: "/logistics", label: "Logistics", group: "operate" },
-  { href: "/inventory", label: "Inventory", group: "operate" },
-  { href: "/pos", label: "Purchase Orders", group: "operate" },
-  { href: "/commercial", label: "Commercial", group: "operate" },
-  { href: "/agent", label: "Agent", group: "intelligence" },
-  { href: "/simulate", label: "Simulate", group: "intelligence" },
-  { href: "/scenario", label: "Scenario", group: "intelligence" },
-];
-
-const GROUP_LABEL: Record<NavItem["group"], string> = {
-  plan: "Plan",
-  sourcing: "Sourcing",
-  monitor: "Monitor",
-  operate: "Operate",
-  intelligence: "Intelligence",
-};
+import { GROUP_LABEL, navGroups } from "@/lib/nav";
 
 export function Sidebar() {
   const pathname = usePathname();
 
-  const groups = (["plan", "sourcing", "monitor", "operate", "intelligence"] as const).map((group) => ({
-    group,
-    items: NAV.filter((item) => item.group === group),
-  }));
+  const groups = navGroups();
 
   return (
     <aside className="hidden lg:flex flex-col w-60 shrink-0 border-r border-line bg-[rgba(7,16,24,0.6)] backdrop-blur-lg">

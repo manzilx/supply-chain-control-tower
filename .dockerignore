@@ -1,0 +1,46 @@
+# Build context hygiene — keep Docker images small + fast.
+
+# Dev artefacts
+.venv/
+node_modules/
+.next/
+.next/cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Runtime / state
+.data/
+.logs/
+.pids/
+
+# Secrets — NEVER copy into image
+.env
+.env.local
+.env.production
+.env.*.local
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Git
+.git/
+.gitignore
+
+# Docs that don't need to be in the image
+docs/
+CHAT_LOG.md
+Plan.md
+README.md
+
+# CI / dev tooling
+.github/
+Makefile
+scripts/demo.sh

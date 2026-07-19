@@ -1,0 +1,10 @@
+code,description,category,quantity,uom,unit_cost_usd,supplier_name,spec_doc_id,drawing_id,long_lead_days,planned_need_date,milestone_code,status
+RB-EXEC-001,Boiler ID fan assembly (received),Rotating equipment,2,EA,420000,Helios Cast & Forge,SPEC-RB-EXEC-01,DRG-RB-EXEC-01,180,2026-06-30,M2,delivered
+RB-EXEC-002,Coal mill rollers (received),Rotating equipment,8,EA,180000,Helios Cast & Forge,SPEC-RB-EXEC-02,DRG-RB-EXEC-02,150,2026-07-15,M2,delivered
+RB-EXEC-003,Air preheater bundle (received),Heat recovery,2,EA,890000,Kerala Forge Works,SPEC-RB-EXEC-03,,210,2026-07-30,M2,delivered
+RB-EXEC-004,Generator step-up transformer (received),Electrical,2,EA,1100000,BluePeak Controls,SPEC-RB-EXEC-04,,300,2026-08-15,M3,delivered
+RB-EXEC-005,Cooling tower fill bulk (received),Cooling,12,EA,68000,Copperline Metals,SPEC-RB-EXEC-05,,90,2026-08-30,M2,delivered
+RB-EXEC-006,Vacuum deaerator + tank (ordered),Process,1,EA,640000,Kerala Forge Works,SPEC-RB-EXEC-06,,180,2026-10-30,M3,ordered
+RB-EXEC-007,FGD scrubber slurry pumps (planned),Rotating equipment,4,EA,320000,Helios Cast & Forge,,,150,2026-11-30,M3,planned
+RB-EXEC-008,Ash handling vessels (planned),Process,4,EA,210000,,,,180,2026-12-15,M4,planned
+RB-EXEC-009,Generator excitation system (planned),Electrical,1,LOT,580000,BluePeak Controls,,,150,2027-01-15,M4,planned

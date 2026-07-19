@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from "react";
 
+import { AnimatedKpiTile, Donut, MotionPanel, StageFunnel } from "@/components/charts";
 import { EmptyState } from "@/components/empty-state";
-import { KpiTile } from "@/components/kpi-tile";
 import { PageHeader } from "@/components/page-header";
-import { fetchLogisticsQueue, fetchModeRecommendation } from "@/lib/api";
+import { addShipmentEvent, fetchLogisticsQueue, fetchModeRecommendation } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { formatDate, formatMoney } from "@/lib/format-date";
+import { useToast } from "@/lib/toast-context";
 import { useAsync } from "@/lib/use-async";
 import type {
   FreightMode,
@@ -83,15 +85,48 @@ export default function LogisticsPage() {
       ) : (
         <>
           <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <KpiTile label="Total" value={String(summary.total)} />
-            <KpiTile label="In Motion" value={String(summary.in_motion)} />
-            <KpiTile
-              label="Bottleneck"
-              value={String(summary.at_bottleneck)}
-              tone={summary.at_bottleneck ? "bad" : "good"}
-            />
-            <KpiTile label="Value in Motion" value={formatMoney(summary.value_in_motion_usd)} />
+            <AnimatedKpiTile label="Total" value={summary.total} delay={0.00} />
+            <AnimatedKpiTile label="In Motion" value={summary.in_motion} delay={0.05} tone="neutral" />
+            <AnimatedKpiTile label="Bottleneck" value={summary.at_bottleneck} delay={0.10} tone={summary.at_bottleneck ? "bad" : "good"} />
+            <AnimatedKpiTile label="Value in Motion" value={summary.value_in_motion_usd} prefix="$" delay={0.15} />
           </section>
+
+          <MotionPanel delay={0.2}>
+            <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2">
+                <StageFunnel
+                  title="Shipments by stage"
+                  data={(() => {
+                    const counts: Record<string, number> = {};
+                    (queue.data?.shipments || []).forEach((s) => {
+                      counts[s.current_stage] = (counts[s.current_stage] || 0) + 1;
+                    });
+                    const order: ShipmentStage[] = [
+                      "manufacturing", "ready_to_dispatch", "dispatched",
+                      "in_transit", "at_port", "at_customs", "last_mile", "delivered",
+                    ];
+                    return order
+                      .map((s) => ({ name: s.replace(/_/g, " "), value: counts[s] || 0 }))
+                      .filter((d) => d.value > 0);
+                  })()}
+                  height={280}
+                />
+              </div>
+              <Donut
+                title="Mode mix"
+                data={(() => {
+                  const counts: Record<string, number> = {};
+                  (queue.data?.shipments || []).forEach((s) => {
+                    counts[s.mode] = (counts[s.mode] || 0) + 1;
+                  });
+                  return Object.entries(counts).map(([name, value]) => ({ name, value }));
+                })()}
+                centerLabel="modes"
+                centerValue={summary.total}
+                height={280}
+              />
+            </section>
+          </MotionPanel>
 
           <div className="panel-sm flex flex-wrap gap-3 items-end">
             <label className="min-w-[180px] flex flex-col gap-1">
@@ -173,6 +208,8 @@ export default function LogisticsPage() {
                     </div>
                   ) : null}
 
+                  <ShipmentAdvanceControls shipment={s} onAdvanced={() => queue.reload()} />
+
                   {s.events.length > 0 ? (
                     <details className="panel-sm">
                       <summary className="cursor-pointer text-sm text-muted select-none">
@@ -233,6 +270,102 @@ const STAGE_ORDER: ShipmentStage[] = [
   "last_mile",
   "delivered",
 ];
+
+function formatStage(stage: ShipmentStage): string {
+  return stage.replace(/_/g, " ");
+}
+
+function nextStage(current: ShipmentStage): ShipmentStage | null {
+  const idx = STAGE_ORDER.indexOf(current);
+  if (idx < 0 || idx >= STAGE_ORDER.length - 1) return null;
+  return STAGE_ORDER[idx + 1];
+}
+
+function ShipmentAdvanceControls({
+  shipment,
+  onAdvanced,
+}: {
+  shipment: Shipment;
+  onAdvanced: () => void;
+}) {
+  const { hasPerm } = useAuth();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [location, setLocation] = useState("");
+  const [note, setNote] = useState("");
+
+  const canAdvance =
+    hasPerm("shipment_event", "create") && shipment.current_stage !== "delivered";
+  if (!canAdvance) return null;
+
+  const next = nextStage(shipment.current_stage);
+  if (!next) return null;
+
+  const showClearBottleneck =
+    !!shipment.bottleneck &&
+    (shipment.current_stage === "at_port" || shipment.current_stage === "at_customs");
+
+  async function advance(stage: ShipmentStage, defaultNote?: string) {
+    setBusy(true);
+    try {
+      await addShipmentEvent(shipment.po_ref, {
+        stage,
+        location: location.trim() || null,
+        note: note.trim() || defaultNote || null,
+      });
+      toast.success(`Advanced to ${formatStage(stage)}`);
+      setLocation("");
+      setNote("");
+      onAdvanced();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not advance stage");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="panel-sm space-y-2">
+      <div className="text-[0.68rem] uppercase tracking-[0.12em] text-muted font-bold">
+        Advance shipment
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <input
+          placeholder="Location (optional)…"
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          className="text-sm"
+          disabled={busy}
+        />
+        <input
+          placeholder="Note (optional)…"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="text-sm"
+          disabled={busy}
+        />
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          className="btn btn-primary text-xs"
+          disabled={busy}
+          onClick={() => void advance(next)}
+        >
+          {busy ? "…" : `Advance to ${formatStage(next)}`}
+        </button>
+        {showClearBottleneck ? (
+          <button
+            className="btn btn-secondary text-xs"
+            disabled={busy}
+            onClick={() => void advance(next, "Bottleneck cleared")}
+          >
+            Clear bottleneck
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 function StageTrack({ current }: { current: ShipmentStage }) {
   const idx = STAGE_ORDER.indexOf(current);

@@ -1,7 +1,7 @@
 "use client";
 
+import { AnimatedKpiTile, HBar, MotionPanel, VBar, CHART_PALETTE } from "@/components/charts";
 import { EmptyState } from "@/components/empty-state";
-import { KpiTile } from "@/components/kpi-tile";
 import { PageHeader } from "@/components/page-header";
 import { fetchCommercialSummary } from "@/lib/api";
 import { formatMoney } from "@/lib/format-date";
@@ -35,20 +35,74 @@ export default function CommercialPage() {
       ) : (
         <>
           <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <KpiTile label="Total Budget" value={formatMoney(data.total_budget_usd)} />
-            <KpiTile label="Awarded" value={formatMoney(data.total_awarded_usd)} />
-            <KpiTile
+            <AnimatedKpiTile label="Total Budget" value={data.total_budget_usd} prefix="$" delay={0.00} />
+            <AnimatedKpiTile label="Awarded" value={data.total_awarded_usd} prefix="$" delay={0.05} />
+            <AnimatedKpiTile
               label="Savings"
-              value={formatMoney(data.total_savings_usd)}
+              value={data.total_savings_usd}
+              prefix="$"
               tone={data.total_savings_usd > 0 ? "good" : "neutral"}
               hint={data.savings_pct > 0 ? `${data.savings_pct.toFixed(1)}%` : undefined}
+              delay={0.10}
             />
-            <KpiTile
-              label="Awarded vs Budget"
-              value={data.total_budget_usd ? `${((data.total_awarded_usd / data.total_budget_usd - 1) * 100).toFixed(1)}%` : "—"}
-              tone={data.total_awarded_usd > data.total_budget_usd ? "bad" : "neutral"}
+            <AnimatedKpiTile
+              label="Variance %"
+              value={data.total_budget_usd ? (data.total_awarded_usd / data.total_budget_usd - 1) * 100 : 0}
+              suffix="%"
+              format={(v) => v.toFixed(1)}
+              tone={data.total_awarded_usd > data.total_budget_usd ? "bad" : "good"}
+              delay={0.15}
             />
           </section>
+
+          {data.projects.length > 0 ? (
+            <MotionPanel delay={0.2}>
+              <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <VBar
+                  title="Budget vs Awarded by project"
+                  data={data.projects.map((p) => ({
+                    name: p.project_id,
+                    budget:   Math.round(p.total_budget_usd),
+                    quoted:   Math.round(p.total_quoted_usd),
+                    awarded:  Math.round(p.total_awarded_usd),
+                  }))}
+                  series={[
+                    { key: "budget",  name: "Budget",  color: CHART_PALETTE.slate },
+                    { key: "quoted",  name: "Quoted",  color: CHART_PALETTE.sky },
+                    { key: "awarded", name: "Awarded", color: CHART_PALETTE.accent },
+                  ]}
+                  valueFormat={(v) => `$${(v / 1000).toFixed(0)}k`}
+                  height={280}
+                />
+                <div className="grid grid-cols-1 gap-3">
+                  {data.top_savings.length > 0 ? (
+                    <HBar
+                      title="Top savings"
+                      color={CHART_PALETTE.accent}
+                      data={data.top_savings.slice(0, 5).map((l) => ({
+                        name: l.code,
+                        value: Math.round(l.savings_usd),
+                      }))}
+                      valueFormat={(v) => `$${(v / 1000).toFixed(0)}k`}
+                      height={130}
+                    />
+                  ) : null}
+                  {data.top_overruns.length > 0 ? (
+                    <HBar
+                      title="Top overruns"
+                      color={CHART_PALETTE.rose}
+                      data={data.top_overruns.slice(0, 5).map((l) => ({
+                        name: l.code,
+                        value: Math.round(Math.abs(l.savings_usd)),
+                      }))}
+                      valueFormat={(v) => `$${(v / 1000).toFixed(0)}k`}
+                      height={130}
+                    />
+                  ) : null}
+                </div>
+              </section>
+            </MotionPanel>
+          ) : null}
 
           <section className="panel">
             <h2 className="m-0 text-lg font-bold mb-3">Projects</h2>

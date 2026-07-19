@@ -1,0 +1,73 @@
+# Project Control Tower — single-container build for Fly.io / Render / any PaaS.
+# Bundles backend + frontend + a tiny nginx into one image so we only pay for
+# one VM. Both processes managed by `supervisord`.
+
+# -------- Stage 1: frontend deps + build --------
+FROM node:20-alpine AS fe-deps
+WORKDIR /fe
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci --no-audit --no-fund
+
+FROM node:20-alpine AS fe-build
+WORKDIR /fe
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=fe-deps /fe/node_modules ./node_modules
+COPY frontend/ ./
+ARG NEXT_PUBLIC_API_BASE=""
+ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+RUN npm run build
+
+# -------- Stage 2: backend deps --------
+FROM python:3.13-slim AS be-deps
+WORKDIR /build
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt ./
+RUN pip install --user -r requirements.txt
+
+# -------- Stage 3: runtime (python base, has nginx + node) --------
+FROM python:3.13-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        nginx supervisor curl ca-certificates \
+        nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Non-root user
+RUN groupadd --gid 1000 app && useradd --uid 1000 --gid app --create-home --shell /bin/bash app
+
+# Backend deps + source
+COPY --from=be-deps /root/.local /home/app/.local
+ENV PATH=/home/app/.local/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    APP_ENV=prod \
+    STATE_DIR=/data \
+    PORT=8080 \
+    # Must stay at 1: state is process-local in-memory dicts. Snapshot-to-disk
+    # handles durability; scaling workers silently splits the store.
+    UVICORN_WORKERS=1
+
+WORKDIR /srv
+
+COPY app/      /srv/app/
+COPY fixtures/ /srv/fixtures/
+
+# Frontend standalone bundle
+COPY --from=fe-build /fe/.next/standalone /srv/frontend/
+COPY --from=fe-build /fe/.next/static    /srv/frontend/.next/static
+COPY --from=fe-build /fe/public          /srv/frontend/public
+
+# nginx + supervisord config
+COPY deploy/nginx.conf       /etc/nginx/nginx.conf
+COPY deploy/supervisord.conf /etc/supervisord.conf
+
+RUN mkdir -p /data /var/log/supervisor /var/lib/nginx /var/log/nginx /run/nginx \
+    && chown -R app:app /srv /data /var/log/supervisor /var/lib/nginx /var/log/nginx /run/nginx
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8080/healthz || exit 1
+
+USER app
+CMD ["supervisord", "-c", "/etc/supervisord.conf", "-n"]

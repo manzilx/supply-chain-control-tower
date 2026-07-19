@@ -8,7 +8,8 @@ item, matching the recommendation contract in Plan.md §7.
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from typing import List
+from typing import List, Optional
+from urllib.parse import quote
 
 from .commercial import build_commercial_summary
 from .expediting import build_expedite_queue
@@ -16,6 +17,7 @@ from .planning import build_procurement_plan, list_projects
 from .sample_data import build_demo_request
 from .schemas import (
     KpiSnapshot,
+    WeeklyCategory,
     WeeklyPlan,
     WeeklyPlanItem,
 )
@@ -31,16 +33,157 @@ def _week_of() -> date:
     return date.today()
 
 
-def build_weekly_plan() -> WeeklyPlan:
+def _encode_vendor(name: str) -> str:
+    return quote(name, safe="")
+
+
+def _is_entity_ref(ref: str) -> bool:
+    return ref.startswith(("vendor:", "project:", "category:", "RFQ-", "PR-", "SPO-", "PO-"))
+
+
+def _extract_project_id(refs: List[str]) -> Optional[str]:
+    for ref in refs:
+        if ref.startswith("project:"):
+            return ref.split(":", 1)[1]
+    return None
+
+
+def _extract_bom_item_id(refs: List[str]) -> Optional[str]:
+    project_id = _extract_project_id(refs)
+    if not project_id:
+        return None
+    for ref in refs:
+        if not _is_entity_ref(ref):
+            return ref
+    return None
+
+
+def _ref_href(ref: str, project_id: Optional[str] = None) -> Optional[str]:
+    if ref.startswith("vendor:"):
+        return f"/vendors/{_encode_vendor(ref.split(':', 1)[1])}"
+    if ref.startswith("project:"):
+        return f"/projects/{ref.split(':', 1)[1]}"
+    if ref.startswith("category:"):
+        return None
+    if ref.startswith("RFQ-"):
+        return f"/sourcing/rfqs/{ref}"
+    if ref.startswith("PR-"):
+        return f"/sourcing/prs/{ref}"
+    if ref.startswith(("SPO-", "PO-")):
+        return "/pos"
+    if project_id and not _is_entity_ref(ref):
+        return f"/projects/{project_id}/bom"
+    return None
+
+
+def _resolve_item_href(category: WeeklyCategory, refs: List[str]) -> Optional[str]:
+    project_id = _extract_project_id(refs)
+    bom_item_id = _extract_bom_item_id(refs)
+
+    if category == "expediting":
+        if any(ref.startswith(("SPO-", "PO-")) for ref in refs):
+            return "/pos"
+        return "/expediting"
+
+    if category == "sourcing":
+        for ref in refs:
+            if ref.startswith("RFQ-"):
+                return f"/sourcing/rfqs/{ref}"
+        for ref in refs:
+            if ref.startswith("PR-"):
+                return f"/sourcing/prs/{ref}"
+        if project_id and bom_item_id:
+            return f"/projects/{project_id}/bom"
+        if project_id:
+            return f"/projects/{project_id}"
+
+    if category == "vendor_risk":
+        for ref in refs:
+            if ref.startswith("vendor:"):
+                return f"/vendors/{_encode_vendor(ref.split(':', 1)[1])}"
+        return "/vendors"
+
+    if category == "commercial":
+        for ref in refs:
+            if ref.startswith("PR-"):
+                return f"/sourcing/prs/{ref}"
+        if project_id:
+            return f"/projects/{project_id}"
+        return "/commercial"
+
+    if category == "planning":
+        if project_id and bom_item_id:
+            return f"/projects/{project_id}/bom"
+        if project_id:
+            return f"/projects/{project_id}"
+
+    if category == "logistics":
+        return "/logistics"
+
+    for ref in refs:
+        href = _ref_href(ref, project_id)
+        if href:
+            return href
+    return None
+
+
+def _resolve_primary_action(
+    category: WeeklyCategory, refs: List[str], href: Optional[str]
+) -> Optional[str]:
+    if not href:
+        return None
+
+    if category == "expediting":
+        return "Open PO" if href == "/pos" else "Open expediting"
+    if category == "vendor_risk":
+        return "View vendor"
+    if category == "logistics":
+        return "Open logistics"
+    if category == "commercial":
+        if any(ref.startswith("PR-") for ref in refs):
+            return "Open PR"
+        return "Open commercial"
+    if category == "planning":
+        return "Open BOM" if href.endswith("/bom") else "Open project"
+    if category == "sourcing":
+        if any(ref.startswith("RFQ-") for ref in refs):
+            return "Open RFQ"
+        if any(ref.startswith("PR-") for ref in refs):
+            return "Open PR"
+        if href.endswith("/bom"):
+            return "Open BOM"
+        return "Open project"
+    return "Go"
+
+
+def _make_item(**kwargs) -> WeeklyPlanItem:
+    refs = kwargs["supporting_refs"]
+    category = kwargs["category"]
+    href = _resolve_item_href(category, refs)
+    return WeeklyPlanItem(
+        **kwargs,
+        href=href,
+        primary_action=_resolve_primary_action(category, refs, href),
+    )
+
+
+from ._cache import ttl_cache
+
+
+# 60s cache matters doubly here: the plan synthesis fans out across every
+# module AND (with XAI_API_KEY set) makes an LLM call — multi-second latency
+# and real cost on every /weekly-plan load without this.
+@ttl_cache(ttl_seconds=60.0)
+def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
     items: List[WeeklyPlanItem] = []
     refs_collected: List[str] = []
 
     # 1. Expediting — escalate/nudge items
-    queue = build_expedite_queue()
+    queue = build_expedite_queue(tenant_id=tenant_id)
     for exp in queue.items:
         if exp.urgency == "escalate":
             items.append(
-                WeeklyPlanItem(
+                _make_item(
                     priority="P1",
                     category="expediting",
                     title=f"Escalate {exp.po_number} with {exp.supplier_name}",
@@ -60,7 +203,7 @@ def build_weekly_plan() -> WeeklyPlan:
             )
         elif exp.urgency == "nudge":
             items.append(
-                WeeklyPlanItem(
+                _make_item(
                     priority="P2",
                     category="expediting",
                     title=f"Nudge {exp.supplier_name} on {exp.po_number}",
@@ -77,14 +220,14 @@ def build_weekly_plan() -> WeeklyPlan:
             )
 
     # 2. Procurement planning — missing specs and long-lead pressure
-    for project in list_projects():
-        plan = build_procurement_plan(project.project_id)
+    for project in list_projects(tenant_id=tenant_id):
+        plan = build_procurement_plan(project.project_id, tenant_id=tenant_id)
         if not plan:
             continue
         # Missing spec — engineering blocker
         for flag in plan.missing_spec_items[:3]:
             items.append(
-                WeeklyPlanItem(
+                _make_item(
                     priority="P1",
                     category="planning",
                     title=f"Release spec for {flag.code} ({project.name})",
@@ -105,7 +248,7 @@ def build_weekly_plan() -> WeeklyPlan:
                 slack = flag.days_until_need - flag.long_lead_days
                 if slack <= 30:
                     items.append(
-                        WeeklyPlanItem(
+                        _make_item(
                             priority="P1" if slack <= 0 else "P2",
                             category="sourcing",
                             title=f"Place PR for long-lead {flag.code}",
@@ -122,12 +265,12 @@ def build_weekly_plan() -> WeeklyPlan:
                     )
 
     # 3. Vendor risk — single-source with flags
-    vendor_summaries = list_vendor_summaries()
-    concentration = {c.category: c for c in list_category_concentration()}
+    vendor_summaries = list_vendor_summaries(tenant_id=tenant_id)
+    concentration = {c.category: c for c in list_category_concentration(tenant_id=tenant_id)}
     for v in vendor_summaries:
         if v.single_source_exposure and v.flags_count > 0:
             items.append(
-                WeeklyPlanItem(
+                _make_item(
                     priority="P2",
                     category="vendor_risk",
                     title=f"Qualify alternate for {v.vendor}",
@@ -148,11 +291,11 @@ def build_weekly_plan() -> WeeklyPlan:
             )
 
     # 4. Commercial — overruns
-    commercial = build_commercial_summary()
+    commercial = build_commercial_summary(tenant_id=tenant_id)
     for line in commercial.top_overruns[:2]:
         if line.variance_pct > 5:
             items.append(
-                WeeklyPlanItem(
+                _make_item(
                     priority="P2",
                     category="commercial",
                     title=f"Renegotiate {line.code} ({line.ref_id})",
@@ -174,7 +317,7 @@ def build_weekly_plan() -> WeeklyPlan:
     for rfq in list_rfqs():
         if rfq.status in {"open", "quotes_received"}:
             items.append(
-                WeeklyPlanItem(
+                _make_item(
                     priority="P3",
                     category="sourcing",
                     title=f"Progress {rfq.rfq_no} ({rfq.code})",
@@ -217,7 +360,7 @@ def build_weekly_plan() -> WeeklyPlan:
         headline = "Quiet week on the control tower."
 
     # KPI snapshot
-    scenario = build_demo_request()
+    scenario = build_demo_request(tenant_id or "arcforge")
     kpi_snapshot: List[KpiSnapshot] = [
         KpiSnapshot(
             label="Overall Risk",
@@ -251,7 +394,7 @@ def build_weekly_plan() -> WeeklyPlan:
         ),
     ]
 
-    return WeeklyPlan(
+    plan = WeeklyPlan(
         generated_at=_now(),
         week_of=_week_of(),
         headline=headline,
@@ -259,7 +402,46 @@ def build_weekly_plan() -> WeeklyPlan:
         items=items,
         assumptions=[
             "Plan is rebuilt on every fetch from current scenario + sourcing + logistics state.",
-            "Priorities use deterministic rules; swap in an LLM ranker by setting ANTHROPIC_API_KEY or OPENAI_API_KEY.",
+            "Priorities use deterministic rules; synthesized_narrative comes from Grok when XAI_API_KEY is set.",
             "Confidence is a heuristic from signal strength, not a statistical estimate.",
         ],
     )
+    # Add LLM synthesis on top of the rule-based plan (None if Grok unavailable).
+    plan.synthesized_narrative = _llm_weekly_narrative(plan)
+    return plan
+
+
+def _llm_weekly_narrative(plan: WeeklyPlan) -> Optional[str]:
+    """Compose a 2-paragraph executive narrative over the deterministic plan."""
+
+    from .llm import grok_chat, is_enabled
+
+    if not is_enabled():
+        return None
+
+    import json as _json
+    summary = {
+        "headline": plan.headline,
+        "kpis": [{"label": k.label, "value": k.value, "tone": k.tone} for k in plan.kpi_snapshot],
+        "items": [
+            {
+                "priority": i.priority,
+                "category": i.category,
+                "title": i.title,
+                "why": i.why,
+                "owner": i.owner,
+                "due_in_days": i.due_in_days,
+                "confidence": i.confidence,
+            }
+            for i in plan.items
+        ],
+    }
+    system = (
+        "You are a chief procurement officer writing a 2-paragraph briefing on "
+        "this week's priorities for the project sponsor. Paragraph 1: where the "
+        "biggest pressure is and why. Paragraph 2: what you're doing about it "
+        "and which decisions need cover-air. Plain prose, no markdown, "
+        "no headings, no lists. ≤180 words."
+    )
+    user = "This week's plan:\n" + _json.dumps(summary, default=str, indent=2)
+    return grok_chat(system, user, max_tokens=500, temperature=0.4, timeout=25)

@@ -159,6 +159,7 @@ export type Milestone = {
 
 export type Project = {
   project_id: string;
+  tenant_id: string;
   name: string;
   client: string;
   site: string;
@@ -166,6 +167,108 @@ export type Project = {
   currency: string;
   start_date: string;
   milestones: Milestone[];
+};
+
+export type AlertSeverity = "critical" | "high" | "medium" | "low" | "info";
+
+export type Alert = {
+  alert_id: string;
+  severity: AlertSeverity;
+  category: string;
+  title: string;
+  detail: string;
+  href: string;
+};
+
+export type AlertFeed = {
+  generated_at: string;
+  total: number;
+  counts: Record<string, number>;
+  alerts: Alert[];
+};
+
+export type PortfolioCounts = {
+  projects: number;
+  bom_lines: number;
+  prs: number;
+  rfqs: number;
+  pos: number;
+};
+
+export type PortfolioCompletionBucket = { label: string; count: number };
+
+export type PortfolioSpend = {
+  total_budget_usd: number;
+  total_committed_usd: number;
+  total_awarded_usd: number;
+  committed_pct: number;
+  open_prs: number;
+};
+
+export type PortfolioScheduleItem = {
+  project_id: string;
+  project_name: string;
+  milestone_code: string;
+  milestone_name: string;
+  required_on_site_date: string;
+  days_until: number;
+  completion_pct: number;
+  at_risk: boolean;
+};
+
+export type PortfolioSchedule = {
+  at_risk: PortfolioScheduleItem[];
+  upcoming_14d: PortfolioScheduleItem[];
+};
+
+export type PortfolioActivity = {
+  at: string;
+  action: string;
+  entity_kind: string;
+  subject: string;
+  summary: string;
+  project_id?: string | null;
+};
+
+export type PortfolioSummary = {
+  generated_at: string;
+  counts: PortfolioCounts;
+  average_completion_pct: number;
+  completion_buckets: PortfolioCompletionBucket[];
+  spend: PortfolioSpend;
+  schedule: PortfolioSchedule;
+  activity: PortfolioActivity[];
+};
+
+export type SearchKind = "project" | "bom" | "vendor" | "pr" | "po";
+
+export type SearchIndexItem = {
+  kind: SearchKind;
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  href: string;
+  project_id?: string | null;
+  tags: string[];
+};
+
+export type SearchIndex = {
+  generated_at: string;
+  items: SearchIndexItem[];
+};
+
+export type ProjectProgress = {
+  project_id: string;
+  completion_pct: number;
+  milestones_pct: number;
+  bom_delivered_pct: number;
+  spend_committed_pct: number;
+  milestones_passed: number;
+  milestones_total: number;
+  bom_delivered: number;
+  bom_total: number;
+  committed_value_usd: number;
+  budget_value_usd: number;
 };
 
 export type BOMItem = {
@@ -268,6 +371,8 @@ export type SourcingStrategy =
 
 export type Incoterm = "EXW" | "FCA" | "FOB" | "CIF" | "CIP" | "DAP" | "DDP";
 
+export type SapStatus = "draft" | "submitting" | "synced" | "failed";
+
 export type PurchaseRequisition = {
   pr_no: string;
   project_id: string;
@@ -286,6 +391,11 @@ export type PurchaseRequisition = {
   award_id?: string | null;
   po_no?: string | null;
   created_at: string;
+  // SAP CPI
+  sap_pr_no?: string | null;
+  sap_status?: SapStatus;
+  sap_last_synced_at?: string | null;
+  sap_error?: string | null;
 };
 
 export type RFQ = {
@@ -340,6 +450,164 @@ export type QuoteComparison = {
   notes: string[];
 };
 
+// --- Technical Bid Evaluation (TBE) -------------------------------------
+
+export type ComplianceLevel =
+  | "full" | "partial" | "deviation" | "non_compliant" | "not_assessed";
+
+export type CriterionCategory =
+  | "spec_compliance" | "scope_of_supply" | "materials" | "performance"
+  | "quality" | "documentation" | "warranty" | "spares_service"
+  | "delivery_terms" | "experience" | "commercial_terms";
+
+export type TechnicalCriterion = {
+  criterion_id: string;
+  name: string;
+  description: string;
+  category: CriterionCategory;
+  weight: number;
+  mandatory: boolean;
+};
+
+export type CriterionScore = {
+  criterion_id: string;
+  score: number;
+  compliance: ComplianceLevel;
+  note: string;
+  deviation_text?: string | null;
+};
+
+export type TechnicalEvaluation = {
+  rfq_no: string;
+  quote_id: string;
+  vendor: string;
+  criteria_scores: CriterionScore[];
+  technical_score: number;
+  technical_grade: "A" | "B" | "C" | "D" | "F";
+  disqualified: boolean;
+  disqualification_reason?: string | null;
+  notes: string;
+  source: "manual" | "grok" | "deterministic";
+  evaluated_by: string;
+  evaluated_at: string;
+};
+
+export type CombinedEvaluation = {
+  vendor: string;
+  quote_id: string;
+  commercial_score: number;
+  technical_score: number;
+  combined_score: number;
+  commercial_rank: number;
+  technical_rank: number;
+  combined_rank: number;
+  deviations_count: number;
+  disqualified: boolean;
+  notes: string[];
+};
+
+export type TBE = {
+  rfq_no: string;
+  generated_at: string;
+  criteria: TechnicalCriterion[];
+  technical_evaluations: TechnicalEvaluation[];
+  commercial?: QuoteComparison | null;
+  combined: CombinedEvaluation[];
+  commercial_weight: number;
+  technical_weight: number;
+  recommended_vendor?: string | null;
+  recommendation_rationale?: string | null;
+  notes: string[];
+};
+
+// --- Audit Trail --------------------------------------------------------
+
+export type AuditEntityKind =
+  | "bom_item" | "project" | "pr" | "rfq" | "quote" | "award" | "po"
+  | "shipment" | "shipment_event" | "technical_evaluation" | "sap_event"
+  | "vendor" | "spec" | "approval" | "ai_brief" | "system";
+
+export type AuditAction =
+  | "created" | "updated" | "deleted"
+  | "uploaded" | "issued" | "received" | "evaluated" | "compared"
+  | "awarded" | "po_drafted" | "submitted_to_sap" | "sap_status_changed"
+  | "stage_advanced" | "gr_posted" | "ir_posted" | "delivered"
+  | "approved" | "rejected" | "exported" | "ai_generated";
+
+export type AuditSource = "ui" | "api" | "sap_webhook" | "ai" | "scheduled_job" | "csv_upload" | "system";
+
+export type AuditEvent = {
+  event_id: string;
+  occurred_at: string;
+  actor: string;
+  action: AuditAction;
+  entity_kind: AuditEntityKind;
+  entity_id: string;
+  subject: string;
+  summary: string;
+  source: AuditSource;
+  tenant_id?: string;
+  bom_item_id?: string | null;
+  bom_code?: string | null;
+  project_id?: string | null;
+  pr_no?: string | null;
+  rfq_no?: string | null;
+  quote_id?: string | null;
+  award_id?: string | null;
+  po_no?: string | null;
+  vendor?: string | null;
+  sap_doc_no?: string | null;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type PivotCount = {
+  key: string;
+  label: string;
+  event_count: number;
+  last_at?: string | null;
+  description?: string | null;
+  project_id?: string | null;
+  category?: string | null;
+  status?: string | null;
+  value_usd?: number | null;
+  related_pos: number;
+  related_rfqs: number;
+  related_vendors: number;
+};
+
+export type AuditPage = {
+  events: AuditEvent[];
+  total: number;
+  has_more: boolean;
+  next_offset?: number | null;
+};
+
+export type TraceStage = {
+  stage:
+    | "bom_item" | "spec" | "pr" | "rfq" | "quotes" | "technical_eval"
+    | "award" | "po" | "sap" | "shipment" | "delivery" | "invoice";
+  label: string;
+  entity_id?: string | null;
+  status?: string | null;
+  occurred_at?: string | null;
+  actor?: string | null;
+  detail?: string | null;
+  payload?: Record<string, unknown> | null;
+  children: string[];
+  complete: boolean;
+};
+
+export type TraceabilityChain = {
+  root_kind: AuditEntityKind;
+  root_id: string;
+  project_id?: string | null;
+  stages: TraceStage[];
+  generated_at: string;
+  events_count: number;
+};
+
 export type Award = {
   award_id: string;
   rfq_no: string;
@@ -370,6 +638,40 @@ export type SourcingPO = {
   lead_time_days: number;
   created_at: string;
   status: "draft" | "released" | "in_transit" | "delivered";
+  // SAP CPI
+  sap_po_no?: string | null;
+  sap_status?: SapStatus;
+  sap_last_synced_at?: string | null;
+  sap_error?: string | null;
+  sap_gr_qty?: number | null;
+  sap_ir_value_usd?: number | null;
+};
+
+// --- SAP CPI integration shapes -----------------------------------------
+
+export type SapMode = "mock" | "live" | "disabled";
+
+export type SapHealth = {
+  mode: SapMode;
+  base_url?: string | null;
+  last_success_at?: string | null;
+  last_error_at?: string | null;
+  last_error?: string | null;
+  token_valid_until?: string | null;
+  submissions_total: number;
+  submissions_failed: number;
+  events_received: number;
+};
+
+export type SapSubmitReply = {
+  ok: boolean;
+  pr_no?: string | null;
+  po_no?: string | null;
+  sap_pr_no?: string | null;
+  sap_po_no?: string | null;
+  sap_status: SapStatus;
+  sap_error?: string | null;
+  submitted_at: string;
 };
 
 export type SourcingTimelineEvent = {
@@ -509,6 +811,8 @@ export type ExpediteItem = {
   reasons: string[];
   source: "scenario" | "sourcing";
   project_id?: string | null;
+  last_followup_at?: string | null;
+  followup_count?: number;
 };
 
 export type ExpediteSummary = {
@@ -541,6 +845,10 @@ export type DraftFollowupRequest = {
   tone?: EmailTone;
   request_documents?: boolean;
   extra_notes?: string | null;
+};
+
+export type LogFollowupRequest = {
+  tone?: EmailTone | null;
 };
 
 // --- M5: Logistics + Commercial + Simulations -----------------------------
@@ -695,6 +1003,7 @@ export type SimulationResult = {
   milestone_impacts: MilestoneImpact[];
   mitigations: string[];
   assumptions: string[];
+  narrative?: string | null;  // LLM-synthesized executive narrative
 };
 
 // --- M6: AI Command Center ------------------------------------------------
@@ -733,6 +1042,8 @@ export type WeeklyPlanItem = {
   due_in_days: number;
   confidence: number;
   supporting_refs: string[];
+  href?: string | null;
+  primary_action?: string | null;
 };
 
 export type WeeklyPlan = {
@@ -742,6 +1053,7 @@ export type WeeklyPlan = {
   kpi_snapshot: KpiSnapshot[];
   items: WeeklyPlanItem[];
   assumptions: string[];
+  synthesized_narrative?: string | null;
 };
 
 export type ToolCallRecord = {
@@ -758,16 +1070,203 @@ export type ChatTurn = {
   created_at?: string;
 };
 
+export type IngestSheetPreview = {
+  sheet: string;
+  entity?: "project" | "bom" | "supplier" | null;
+  rows_total: number;
+  rows_valid: number;
+  mapped: Record<string, string>;
+  unmapped: string[];
+  errors: string[];
+  sample: Record<string, unknown>[];
+};
+
+export type IngestPreviewReply = {
+  staging_id: string;
+  filename: string;
+  sheets: IngestSheetPreview[];
+  total_valid: number;
+  total_rows: number;
+};
+
+export type IngestCommitReply = {
+  created: { projects: number; bom_items: number; suppliers: number };
+  errors: string[];
+  refs: string[];
+};
+
+export type AiStatus = {
+  enabled: boolean;
+  provider: string;
+  model?: string | null;
+  base_url?: string | null;
+  stats: {
+    calls: number;
+    errors: number;
+    last_latency_ms?: number | null;
+    last_at?: string | null;
+  };
+};
+
 export type ChatRequest = {
   message: string;
   history?: ChatTurn[];
   project_id?: string | null;
+  page?: string | null;
 };
 
 export type ChatReply = {
   reply: string;
   tool_calls: ToolCallRecord[];
   persona: AgentPersona;
-  source: "claude" | "openai" | "deterministic";
+  source: "grok" | "claude" | "openai" | "deterministic";
   generated_at: string;
 };
+
+// --- AI feature shapes (Bundles 1-4) -------------------------------------
+
+export type AISource = "grok" | "deterministic";
+
+export type VendorBriefing = {
+  vendor: string;
+  headline: string;
+  body: string;
+  watchlist: string[];
+  generated_at: string;
+  source: AISource;
+};
+
+export type RiskMitigationsReply = {
+  risk_title: string;
+  mitigations: string[];
+  source: AISource;
+  generated_at: string;
+};
+
+export type ExplainKind = "po" | "vendor" | "risk" | "project" | "rfq" | "pr";
+
+export type ExplainReply = {
+  kind: string;
+  id: string;
+  headline: string;
+  body: string;
+  bullets: string[];
+  source: AISource;
+  generated_at: string;
+};
+
+export type BOMAutofillSuggestion = {
+  bom_item_id: string;
+  code: string;
+  description: string;
+  current_category?: string | null;
+  current_supplier?: string | null;
+  suggested_category?: string | null;
+  suggested_supplier?: string | null;
+  reason: string;
+};
+
+export type BOMAutofillReply = {
+  project_id: string;
+  suggestions: BOMAutofillSuggestion[];
+  source: AISource;
+  generated_at: string;
+};
+
+export type SpecRequestReply = {
+  bom_item_id: string;
+  code: string;
+  to_placeholder: string;
+  subject: string;
+  body: string;
+  source: AISource;
+  generated_at: string;
+};
+
+// --- M7: Auth + Tenants + Approvals --------------------------------------
+
+export type Role =
+  | "admin"
+  | "procurement_head"
+  | "buyer"
+  | "expeditor"
+  | "viewer";
+
+export type Tenant = {
+  tenant_id: string;
+  name: string;
+  sector: string;
+};
+
+export type User = {
+  user_id: string;
+  email: string;
+  display_name: string;
+  tenant_id: string;
+  role: Role;
+};
+
+export type Persona = {
+  user_id: string;
+  display_name: string;
+  email: string;
+  role: Role;
+  tenant_id: string;
+  tenant_name: string;
+};
+
+export type LoginReply = {
+  token: string;
+  user: User;
+  tenant: Tenant;
+  permissions: string[];
+};
+
+export type MeReply = {
+  user: User;
+  tenant: Tenant;
+  permissions: string[];
+};
+
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "auto_approved";
+export type ApprovalKind =
+  | "po_create"
+  | "award_single_source"
+  | "quote_above_budget"
+  | "variation_order"
+  | "vendor_onboarding";
+
+export type Approval = {
+  approval_id: string;
+  tenant_id: string;
+  kind: ApprovalKind;
+  title: string;
+  summary: string;
+  payload: Record<string, unknown>;
+  requested_by: string;
+  requested_by_name: string;
+  requested_at: string;
+  required_role: Role;
+  status: ApprovalStatus;
+  decided_by?: string | null;
+  decided_by_name?: string | null;
+  decided_at?: string | null;
+  decision_note?: string | null;
+  result_ref?: string | null;
+};
+
+export type DecideApprovalRequest = {
+  note?: string;
+};
+
+export type GatedAwardReply =
+  | { status: "applied"; award: Award; po?: SourcingPO | null; approval?: null }
+  | { status: "pending_approval"; approval: Approval; award?: null; po?: null };
+
+export type GatedQuoteReply =
+  | { status: "applied"; quote: Quote; approval?: null }
+  | { status: "pending_approval"; approval: Approval; quote?: null };
+
+export type GatedVendorReply =
+  | { status: "applied"; scorecard: VendorScorecard; approval?: null }
+  | { status: "pending_approval"; approval: Approval; scorecard?: null };

@@ -1,0 +1,71 @@
+bom_item_id,code,description,category,quantity,uom,unit_cost_usd,supplier_name,spec_doc_id,drawing_id,long_lead_days,planned_need_date,milestone_code
+HYD-HM-001,HM-TR-RACK-01,Intake trash rack assembly 80 sq.m,Hydromechanical,2,SET,185000,SLP Industries,SPC-HM-001-R2,DRG-HM-001-R3,240,2025-09-15,M02
+HYD-HM-002,HM-INTGT-01,Intake gate vertical lift 6.5x7.5 m,Hydromechanical,2,EA,420000,ISGEC Heavy Engineering,SPC-HM-002-R1,DRG-HM-002-R2,365,2025-12-01,M03
+HYD-HM-003,HM-INTHST-01,Intake gate hoist hydraulic 60 t,Hydromechanical,2,EA,210000,ISGEC Heavy Engineering,SPC-HM-003-R1,DRG-HM-003-R1,240,2025-12-01,M03
+HYD-HM-004,HM-DIVGT-01,Diversion tunnel slide gate 4 m sq,Hydromechanical,1,EA,165000,Texmaco Rail,SPC-HM-004-R1,DRG-HM-004-R1,210,2025-09-15,M02
+HYD-HM-005,HM-PEN-PIPE,Penstock steel pipe 4.5 m dia 14 mm thk,Hydromechanical,1500,M,4200,Jindal SAW,SPC-HM-005-R3,DRG-HM-005-R4,480,2026-08-15,M06
+HYD-HM-006,HM-PEN-SDL,Penstock saddle support fabricated,Hydromechanical,18,EA,28500,SLP Industries,SPC-HM-006-R1,DRG-HM-006-R1,180,2026-07-15,M06
+HYD-HM-007,HM-SPLGT-01,Spillway radial gate 8x6 m,Hydromechanical,3,EA,510000,ISGEC Heavy Engineering,SPC-HM-007-R2,DRG-HM-007-R2,365,2026-02-15,M04
+HYD-HM-008,HM-SPLHST-01,Spillway gate rope drum hoist 2x80 t,Hydromechanical,3,EA,148000,ISGEC Heavy Engineering,SPC-HM-008-R1,DRG-HM-008-R1,300,2026-02-15,M04
+HYD-HM-009,HM-TRSTOP-01,Tailrace stop log set 3 panels,Hydromechanical,1,SET,92000,Texmaco Rail,SPC-HM-009-R1,DRG-HM-009-R1,180,2027-09-01,M11
+HYD-HM-010,HM-TRC-MACH,Trash rack cleaning machine,Hydromechanical,1,EA,220000,SLP Industries,,,300,2026-11-01,M07
+HYD-TG-001,TG-RUNNER-01,Francis turbine runner 5.2 m dia 110 MW,Turbine,2,EA,2850000,Andritz Hydro,SPC-TG-001-R3,DRG-TG-001-R5,540,2026-11-15,M07
+HYD-TG-002,TG-WICKET-01,Wicket gate assembly 24 vanes,Turbine,2,SET,1180000,Andritz Hydro,SPC-TG-002-R2,DRG-TG-002-R3,420,2026-11-15,M07
+HYD-TG-003,TG-SPIRAL-01,Spiral case fabricated steel,Turbine,2,EA,1620000,Andritz Hydro,SPC-TG-003-R1,DRG-TG-003-R2,420,2026-11-15,M07
+HYD-TG-004,TG-DRAFT-01,Draft tube liner stainless,Turbine,2,SET,640000,Andritz Hydro,SPC-TG-004-R1,DRG-TG-004-R1,365,2026-11-15,M07
+HYD-TG-005,TG-TOP-COV,Top cover and main shaft assy,Turbine,2,SET,820000,Andritz Hydro,SPC-TG-005-R2,DRG-TG-005-R2,420,2026-11-15,M07
+HYD-TG-006,TG-GOV-01,Digital speed governor with hydraulic PU,Turbine,2,EA,485000,Voith Hydro Shanghai,SPC-TG-006-R1,DRG-TG-006-R1,240,2027-08-15,M11
+HYD-TG-007,TG-SERVO-01,Wicket gate servo motor,Turbine,4,EA,128000,Voith Hydro Shanghai,SPC-TG-007-R1,DRG-TG-007-R1,210,2027-08-15,M11
+HYD-TG-008,TG-STAY-01,Stay ring fabricated,Turbine,2,EA,720000,Andritz Hydro,SPC-TG-008-R1,DRG-TG-008-R2,365,2026-11-15,M07
+HYD-TG-009,TG-MIV-01,Inlet butterfly valve 4.5 m bidir,Turbine,2,EA,1280000,Voith Hydro Shanghai,SPC-TG-009-R1,DRG-TG-009-R2,365,2026-11-15,M07
+HYD-TG-010,TG-SHFTSL-01,Shaft seal main labyrinth set,Turbine,2,SET,68000,Andritz Hydro,SPC-TG-010-R1,DRG-TG-010-R1,180,2026-11-15,M07
+HYD-GE-001,GE-STATOR-01,Generator stator 110 MW 13.8 kV 50 Hz,Generator,2,EA,3950000,BHEL Hyderabad,SPC-GE-001-R3,DRG-GE-001-R4,540,2027-01-15,M08
+HYD-GE-002,GE-ROTOR-01,Generator rotor with poles 110 MW,Generator,2,EA,3120000,BHEL Hyderabad,SPC-GE-002-R3,DRG-GE-002-R3,540,2027-01-15,M08
+HYD-GE-003,GE-EXC-01,Brushless excitation system AVR,Generator,2,SET,395000,Siemens Energy,SPC-GE-003-R2,DRG-GE-003-R2,300,2027-08-15,M11
+HYD-GE-004,GE-SLIPRG-01,Slip rings and brush gear,Generator,2,SET,82000,BHEL Hyderabad,SPC-GE-004-R1,DRG-GE-004-R1,210,2027-01-15,M08
+HYD-GE-005,GE-COOL-01,Generator air cooler bank,Generator,2,SET,310000,BHEL Hyderabad,SPC-GE-005-R1,DRG-GE-005-R1,240,2027-01-15,M08
+HYD-GE-006,GE-BRG-01,Generator thrust and guide bearing set,Generator,2,SET,440000,BHEL Hyderabad,,DRG-GE-006-R1,300,2027-01-15,M08
+HYD-TR-001,TR-GT-130MVA,Generator transformer 130 MVA 13.8/220 kV,Transformer,2,EA,2150000,BHEL Bhopal,SPC-TR-001-R2,DRG-TR-001-R3,450,2027-04-15,M09
+HYD-TR-002,TR-SST-2MVA,Station service transformer 2 MVA 13.8/0.415 kV,Transformer,2,EA,128000,CG Power,SPC-TR-002-R1,DRG-TR-002-R1,180,2027-05-15,M10
+HYD-TR-003,TR-AUX-1MVA,Auxiliary transformer 1.5 MVA dry-type,Transformer,1,EA,98000,CG Power,SPC-TR-003-R1,DRG-TR-003-R1,150,2027-05-15,M10
+HYD-TR-004,TR-FIRE-DEL,Transformer water deluge fire system,Transformer,2,SET,72000,HD Fire Protect,SPC-TR-004-R1,DRG-TR-004-R1,180,2027-05-15,M10
+HYD-GIS-001,GIS-220-BAY,220 kV GIS bay (CB+ISO+ES+CT+VT),GIS Switchgear,4,EA,895000,Hitachi Energy,SPC-GIS-001-R2,DRG-GIS-001-R3,360,2027-05-15,M10
+HYD-GIS-002,GIS-220-SA,220 kV gapless surge arrester,GIS Switchgear,6,EA,18500,Hitachi Energy,SPC-GIS-002-R1,DRG-GIS-002-R1,240,2027-05-15,M10
+HYD-GIS-003,GIS-220-CET,220 kV cable end termination,GIS Switchgear,4,SET,82000,Prysmian,SPC-GIS-003-R1,DRG-GIS-003-R1,300,2027-05-15,M10
+HYD-SG-001,SG-13-UNIT,13.8 kV unit switchgear lineup,Switchgear,2,EA,485000,ABB India,SPC-SG-001-R2,DRG-SG-001-R2,240,2027-01-15,M08
+HYD-SG-002,SG-415-MCC,415 V motor control centre,Switchgear,4,EA,118000,Schneider Electric,SPC-SG-002-R1,DRG-SG-002-R1,180,2026-12-01,
+HYD-SG-003,SG-415-EMCC,415 V emergency MCC with ATS,Switchgear,2,EA,148000,Schneider Electric,SPC-SG-003-R1,DRG-SG-003-R1,180,2027-04-15,
+HYD-IPB-001,IPB-13-6KA,Isolated phase bus 13.8 kV 6000 A,Bus Duct,2,SET,520000,CG Power,SPC-IPB-001-R1,DRG-IPB-001-R2,300,2027-04-15,M09
+HYD-CB-001,CB-220XLPE,220 kV XLPE single core cable,Cables,600,M,425,Prysmian,SPC-CB-001-R2,DRG-CB-001-R1,240,2027-04-15,M10
+HYD-CB-002,CB-13-MV,13.8 kV power cable 3C 240 sq.mm,Cables,4500,M,72,Polycab,SPC-CB-002-R1,DRG-CB-002-R1,150,2026-11-01,
+HYD-CB-003,CB-1-LT,1.1 kV power cable 3.5C 300 sq.mm,Cables,18000,M,28,Polycab,SPC-CB-003-R1,,120,2026-12-01,
+HYD-CB-004,CB-CTL-MC,Control cable 16C 1.5 sq.mm,Cables,12000,M,8.5,KEI Industries,,,90,2027-01-01,
+HYD-CB-005,CB-INST-PR,Instrumentation cable shielded pair,Cables,8000,M,11,KEI Industries,,,90,2027-02-01,
+HYD-CB-006,CB-FO-SM,Single-mode armoured fibre 24 core,Cables,6000,M,14,Polycab,,,120,2027-03-01,
+HYD-CB-007,CB-TRAY-GI,Cable tray galvanized 600 mm wide,Cables,3500,M,68,Havells Cables,SPC-CB-007-R1,,90,2026-10-01,
+HYD-CI-001,CI-DCS-PLT,Plant DCS turbine plus BOP redundant,C&I,1,SYS,985000,Emerson Process,SPC-CI-001-R3,DRG-CI-001-R2,240,2027-08-15,M11
+HYD-CI-002,CI-PROT-GEN,Generator protection panel numerical,C&I,2,SET,210000,ABB India,SPC-CI-002-R2,DRG-CI-002-R1,240,2027-08-15,M11
+HYD-CI-003,CI-VIB-MON,Vibration monitoring turbine generator,C&I,2,SET,98000,Emerson Process,SPC-CI-003-R1,DRG-CI-003-R1,180,2027-08-15,M11
+HYD-CI-004,CI-SYNC-PNL,Synchronizing and metering panel,C&I,2,SET,85000,Schneider Electric,SPC-CI-004-R1,DRG-CI-004-R1,180,2027-08-15,M11
+HYD-CI-005,CI-SCADA-RTU,SCADA RTU and gateway redundant,C&I,1,SET,165000,Emerson Process,,DRG-CI-005-R1,180,2027-09-15,M11
+HYD-CI-006,CI-FLD-INST,Field instruments RTD PT LT lot,C&I,1,LOT,128000,Endress+Hauser,SPC-CI-006-R1,,150,2027-06-01,
+HYD-CI-007,CI-RES-LVL,Reservoir water level radar,C&I,2,EA,18500,Endress+Hauser,SPC-CI-007-R1,,120,2026-08-01,M06
+HYD-CI-008,CI-TW-LVL,Tailwater level sensor pressure,C&I,2,EA,9800,Endress+Hauser,SPC-CI-008-R1,,90,2026-08-01,M06
+HYD-CW-001,CW-PUMP-VT,CW pump vertical turbine 5 m3/s,Cooling Water,4,EA,165000,Kirloskar Brothers,SPC-CW-001-R1,DRG-CW-001-R1,240,2027-04-15,M09
+HYD-CW-002,CW-HX-PLATE,CW plate heat exchanger,Cooling Water,4,EA,82000,Kirloskar Brothers,SPC-CW-002-R1,DRG-CW-002-R1,180,2027-04-15,M09
+HYD-CW-003,CW-STR-AUTO,CW auto-clean strainer,Cooling Water,4,EA,38000,Kirloskar Brothers,SPC-CW-003-R1,,150,2027-03-15,
+HYD-CW-004,CW-PIPE-DN6,CW piping carbon steel DN 600,Cooling Water,220,M,520,Jindal SAW,SPC-CW-004-R1,,120,2027-03-15,
+HYD-LS-001,LS-OIL-COND,Turbine oil tank with conditioning unit,Lubrication,2,SET,98000,Voith Hydro Shanghai,SPC-LS-001-R1,DRG-LS-001-R1,180,2027-06-01,M11
+HYD-CR-001,CR-EOT-PWR,Powerhouse EOT crane 200/30 t double girder,Cranes,1,EA,1280000,Konecranes,SPC-CR-001-R2,DRG-CR-001-R2,300,2026-11-01,M07
+HYD-CR-002,CR-INT-BRG,Intake bridge crane 50 t single girder,Cranes,1,EA,485000,Demag Cranes,SPC-CR-002-R1,DRG-CR-002-R1,240,2025-12-01,M03
+HYD-FP-001,FP-CO2-GEN,Generator high pressure CO2 fire system,Fire Protection,2,SET,148000,HD Fire Protect,SPC-FP-001-R1,DRG-FP-001-R1,180,2027-08-15,M11
+HYD-FP-002,FP-DEL-TR,Transformer water deluge skid,Fire Protection,2,SET,72000,HD Fire Protect,,DRG-FP-002-R1,150,2027-05-15,M10
+HYD-FP-003,FP-FDA-PNL,Fire detection and alarm system,Fire Protection,1,SYS,128000,Tyco Fire Protection,SPC-FP-003-R1,,180,2027-06-01,
+HYD-HV-001,HV-PH-AHU,Powerhouse HVAC AHU and ductwork,HVAC,1,SYS,310000,Voltas,SPC-HV-001-R1,DRG-HV-001-R1,180,2027-04-01,
+HYD-HV-002,HV-SG-PAC,Switchgear room precision AC 18 TR,HVAC,2,SET,72000,Blue Star,SPC-HV-002-R1,,150,2027-04-01,
+HYD-CV-001,CV-CEM-OPC,OPC 53 grade cement bulk,Civil,28000,T,98,UltraTech Cement,SPC-CV-001-R1,,30,2026-01-15,M04
+HYD-CV-002,CV-CEM-PPC,PPC cement bulk,Civil,12000,T,88,Ambuja Cements,SPC-CV-002-R1,,30,2026-01-15,M04
+HYD-CV-003,CV-REBAR-550,TMT rebar Fe 550 8 to 32 mm,Civil,6500,T,720,Tata Steel,SPC-CV-003-R1,,60,2026-02-15,M04
+HYD-CV-004,CV-STRUCT-ST,Structural steel plates and sections,Civil,2400,T,1180,JSW Steel,SPC-CV-004-R1,DRG-CV-004-R1,90,2026-04-01,M05
+HYD-CV-005,CV-FLY-ASH,Class F fly ash bulk,Civil,4800,T,42,ACC Limited,SPC-CV-005-R1,,30,2026-01-15,M04
+HYD-CV-006,CV-WP-MEM,Bituminous waterproofing membrane,Civil,12000,M2,18,Fosroc,,,60,2026-03-01,M04

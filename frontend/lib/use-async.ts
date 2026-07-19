@@ -43,5 +43,12 @@ export function useAsync<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, reloadTick]);
 
+  // Admin tenant switch dispatches `sct:tenant-changed` so mounted hooks refetch.
+  useEffect(() => {
+    const onTenantChanged = () => setReloadTick((t) => t + 1);
+    window.addEventListener("sct:tenant-changed", onTenantChanged);
+    return () => window.removeEventListener("sct:tenant-changed", onTenantChanged);
+  }, []);
+
   return { data, loading, error, reload: () => setReloadTick((t) => t + 1) };
 }

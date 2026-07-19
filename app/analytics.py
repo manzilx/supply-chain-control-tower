@@ -252,8 +252,26 @@ def analyze_supply_chain(request: AgentRequest, ai_response: str) -> AgentRespon
             )
         )
 
+    # Sort by score, then diversify the top slice by type so the register
+    # always surfaces a breadth of signals (inventory, supplier, single-source,
+    # PO slip, incident) rather than letting one type dominate.
     ranked_risks = sorted(risks, key=lambda risk: risk.score, reverse=True)
-    top_risks = ranked_risks[:7]
+    by_type: dict[str, list] = {}
+    for r in ranked_risks:
+        by_type.setdefault(r.risk_type, []).append(r)
+    top_risks: list = []
+    PER_TYPE_FIRST_PASS = 5  # show up to 5 of each type before any seconds
+    for t in ["po_slip", "single_source", "supplier_reliability", "incident", "inventory_gap"]:
+        top_risks.extend(by_type.get(t, [])[:PER_TYPE_FIRST_PASS])
+    # Then top up to 20 with leftovers ordered by score
+    used = set(id(r) for r in top_risks)
+    for r in ranked_risks:
+        if len(top_risks) >= 20:
+            break
+        if id(r) not in used:
+            top_risks.append(r)
+    # Re-sort the chosen 20 by score for display order
+    top_risks = sorted(top_risks, key=lambda r: r.score, reverse=True)
     overall_risk_score = round(sum(risk.score for risk in top_risks) / max(len(top_risks), 1))
 
     shortage_value = 0.0
@@ -312,4 +330,89 @@ def analyze_supply_chain(request: AgentRequest, ai_response: str) -> AgentRespon
         recommended_actions=recommended_actions,
         watch_metrics=watch_metrics,
         assumptions=assumptions,
+    )
+
+
+# --- LLM-generated mitigations for a single risk -----------------------------
+
+
+def generate_risk_mitigations(risk: RiskRecord):
+    """Return 3 concrete mitigations for the given risk record.
+
+    Tries Grok; falls back to type-keyed templates. Always returns a
+    RiskMitigationsReply with `source` indicating which path produced it.
+    """
+
+    from datetime import datetime as _dt, timezone as _tz
+    from .schemas import RiskMitigationsReply
+    from .llm import grok_json, is_enabled
+
+    if is_enabled():
+        import json as _json
+        context = {
+            "title": risk.title,
+            "type": risk.risk_type,
+            "severity": risk.severity,
+            "score": risk.score,
+            "summary": risk.summary,
+            "supplier": risk.supplier_name,
+            "sku": risk.sku,
+            "owner": risk.owner,
+        }
+        system = (
+            "You are a supply-chain risk strategist. Given a single risk record, "
+            "return THREE concrete, actionable mitigations. Each is one sentence, "
+            "specific, names what to do and who would own it. Order: quick-win first, "
+            "structural last. Return JSON: {\"mitigations\": [str, str, str]}."
+        )
+        user = "Risk:\n" + _json.dumps(context, default=str, indent=2)
+        parsed = grok_json(system, user, max_tokens=400)
+        if parsed:
+            mits = parsed.get("mitigations") or []
+            if isinstance(mits, list) and mits:
+                return RiskMitigationsReply(
+                    risk_title=risk.title,
+                    mitigations=[str(m) for m in mits][:5],
+                    source="grok",
+                    generated_at=_dt.now(_tz.utc),
+                )
+
+    # Deterministic fallback by risk type
+    by_type = {
+        "inventory_gap": [
+            "Place a top-up PR sized to lead time × forecast within 24h; assign to the category buyer.",
+            "Negotiate emergency expediting with the primary supplier and flag this SKU for daily watch.",
+            "Add a safety-stock buffer of 1.5× lead-time demand and revisit the reorder point monthly.",
+        ],
+        "supplier_reliability": [
+            "Schedule a supplier review with QA + buyer this week; require a written 30-day recovery plan.",
+            "Re-allocate next 30 days of orders to the approved alternate to relieve pressure.",
+            "Move this supplier to monthly business reviews until OTD/PPM recovers to target.",
+        ],
+        "single_source": [
+            "Identify and onboard a qualified second source for the category within the quarter.",
+            "Build a 60-day strategic buffer of the most critical SKUs from this vendor.",
+            "Renegotiate the master agreement to include capacity guarantees and a force-majeure step-down.",
+        ],
+        "po_slip": [
+            "Issue a formal expediting notice today and request a daily status update from the vendor.",
+            "Pre-stage logistics (air-freight quote, customs broker) so we can switch mode if the slip widens.",
+            "Inform the project planner so downstream milestones can be re-baselined if needed.",
+        ],
+        "incident": [
+            "Assign a single accountable owner and a closure date; daily standup until resolved.",
+            "Document containment + corrective + preventive actions in the audit log.",
+            "Trigger a watchlist alert if open beyond agreed SLA.",
+        ],
+    }
+    mits = by_type.get(risk.risk_type, [
+        "Assign a clear owner and a 5-day plan with milestones.",
+        "Quantify the downside and decide whether to mitigate or accept.",
+        "Track in the weekly review until closed.",
+    ])
+    return RiskMitigationsReply(
+        risk_title=risk.title,
+        mitigations=mits,
+        source="deterministic",
+        generated_at=_dt.now(_tz.utc),
     )

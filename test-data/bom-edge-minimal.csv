@@ -1,0 +1,6 @@
+code,description,quantity
+MIN-001,Minimal-fields row 1,4
+MIN-002,Minimal-fields row 2,12
+MIN-003,Minimal-fields row 3 — proves required-only path,1
+MIN-004,Minimal-fields row 4,80
+MIN-005,Minimal-fields row 5 — no optional cols at all,2

@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 
-import { draftFollowupEmail } from "@/lib/api";
+import { draftFollowupEmail, logFollowupSent } from "@/lib/api";
 import type { EmailTone, ExpediteItem, FollowupEmail } from "@/lib/types";
+import { useToast } from "@/lib/toast-context";
 
 type Props = {
   item: ExpediteItem;
   onClose: () => void;
+  onLogged?: () => void;
 };
 
 const TONE_HINT: Record<EmailTone, string> = {
@@ -16,7 +18,8 @@ const TONE_HINT: Record<EmailTone, string> = {
   urgent: "48-hour response + daily updates.",
 };
 
-export function FollowupModal({ item, onClose }: Props) {
+export function FollowupModal({ item, onClose, onLogged }: Props) {
+  const toast = useToast();
   const [tone, setTone] = useState<EmailTone>(
     item.urgency === "escalate" ? "urgent" : item.urgency === "nudge" ? "firm" : "standard",
   );
@@ -26,6 +29,7 @@ export function FollowupModal({ item, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [logging, setLogging] = useState(false);
 
   useEffect(() => {
     void regenerate();
@@ -56,6 +60,21 @@ export function FollowupModal({ item, onClose }: Props) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
+  }
+
+  async function markSent() {
+    setLogging(true);
+    setError(null);
+    try {
+      await logFollowupSent(item.po_number, { tone });
+      toast.success(`Follow-up logged for ${item.po_number}`);
+      onLogged?.();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to log follow-up");
+    } finally {
+      setLogging(false);
+    }
   }
 
   return (
@@ -111,12 +130,19 @@ export function FollowupModal({ item, onClose }: Props) {
           </label>
         </div>
 
-        <div className="flex gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-4">
           <button className="btn btn-primary" onClick={() => void regenerate()} disabled={loading}>
             {loading ? "Drafting..." : "Regenerate"}
           </button>
           <button className="btn btn-secondary" onClick={copy} disabled={!email}>
             {copied ? "Copied!" : "Copy"}
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={() => void markSent()}
+            disabled={logging || !email}
+          >
+            {logging ? "Logging..." : "Mark follow-up sent"}
           </button>
         </div>
 

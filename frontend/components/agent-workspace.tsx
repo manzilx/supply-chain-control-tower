@@ -54,7 +54,7 @@ function buildPayload(draft: ScenarioDraft): AgentRequest {
 }
 
 export function AgentWorkspace() {
-  const { scenario, setScenario, analyze, status } = useStore();
+  const { scenario, setScenario, analyze, loadDemo, status } = useStore();
   const initial = useMemo<ScenarioDraft | null>(() => (scenario ? draftFromScenario(scenario) : null), [scenario]);
   const [draft, setDraft] = useState<ScenarioDraft | null>(initial);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -83,24 +83,48 @@ export function AgentWorkspace() {
     if (scenario) setDraft(draftFromScenario(scenario));
   }
 
+  const busy = status === "loading" || status === "analyzing";
+
   if (!draft) {
     return (
-      <div className="panel-sm text-center py-10 text-muted">Loading scenario...</div>
+      <div className="space-y-5">
+        <PageHeader
+          eyebrow="Scenario"
+          title="Scenario Builder"
+          description="Legacy demo scenario workspace — load the M1 sample data here, then edit JSON or run analysis. Not part of the live tenant control tower."
+          right={
+            <button className="btn btn-primary" onClick={() => void loadDemo()} disabled={busy}>
+              {status === "loading" ? "Loading..." : "Load Demo"}
+            </button>
+          }
+        />
+        <div className="panel-sm text-center py-10 text-muted">
+          No scenario loaded. Use Load Demo to seed the M1 sample workspace.
+        </div>
+      </div>
     );
   }
-
-  const busy = status === "loading" || status === "analyzing";
 
   return (
     <div className="space-y-5">
       <PageHeader
         eyebrow="Scenario"
         title="Scenario Builder"
-        description="Power-user editor for the structured scenario. CSV import and forms arrive in M2; this JSON view stays available as the escape hatch."
+        description="Legacy demo scenario workspace — load the M1 sample data here, then edit JSON or run analysis. Not part of the live tenant control tower."
         right={
           <div className="flex gap-2">
+            <button className="btn btn-secondary" onClick={() => void loadDemo()} disabled={busy}>
+              {status === "loading" ? "Loading..." : "Load Demo"}
+            </button>
             <button className="btn btn-secondary" onClick={resyncFromScenario} disabled={busy}>
               Reset to Current
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => void analyze()}
+              disabled={busy || !scenario}
+            >
+              {status === "analyzing" ? "Analyzing..." : "Run Analysis"}
             </button>
             <button className="btn btn-primary" onClick={applyAndAnalyze} disabled={busy}>
               {status === "analyzing" ? "Analyzing..." : "Apply & Analyze"}

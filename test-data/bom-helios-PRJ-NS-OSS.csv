@@ -1,0 +1,33 @@
+code,description,category,quantity,uom,unit_cost_usd,supplier_name,spec_doc_id,drawing_id,long_lead_days,planned_need_date,milestone_code
+GIS-66-BAY,GIS 66 kV bay extension,Electrical,4,EA,880000,BluePeak Controls,SPEC-NS-001,DRG-NS-001,280,2026-11-27,M3
+XFMR-PWR-220,Power transformer 220 MVA,Electrical,2,EA,2400000,,,,380,2026-12-17,M3
+REACTOR-SH,Shunt reactor 200 MVAr,Electrical,2,EA,920000,BluePeak Controls,,,300,2026-12-17,M3
+UMBILICAL-DYN,Dynamic umbilical cable,Subsea cables,12,KM,480000,NorthCable Subsea,SPEC-NS-001,,360,2027-01-06,M3
+J-TUBE-CRA,J-tube CRA lined,Tubing,12,EA,95000,Copperline Metals,,,90,2026-10-18,M3
+BUSHING-66KV,66 kV transformer bushing,Electrical,12,EA,38000,BluePeak Controls,,,180,2026-11-07,M3
+SURGE-ARRESTER,Surge arrester 66 kV,Electrical,18,EA,8400,BluePeak Controls,,,90,2026-09-28,M3
+CABLE-LV-SHIP,LV shipboard armoured cable,Cables,32,KM,64000,NorthCable Subsea,,,75,2026-09-28,M3
+DECK-PLATING,Deck plating EH36 grade,Offshore structural,380,T,2900,Aberdeen Steel Fab,,,120,2026-10-28,M2
+PILE-SLEEVE,Pile sleeve fabrication,Offshore structural,8,EA,240000,Aberdeen Steel Fab,,,180,2026-12-17,M3
+PADEYE-MAIN,Main lifting padeye,Offshore structural,16,EA,18000,Aberdeen Steel Fab,,,90,2026-09-28,M2
+COATING-IZ,Inorganic zinc primer,Marine epoxy,1800,L,22,Coastline Marine Coatings,,,45,2026-08-14,M2
+COATING-EPOXY,Epoxy mid coat,Marine epoxy,1200,L,28,Coastline Marine Coatings,,,45,2026-08-14,M2
+ROV-PANEL,ROV interface panel,ROV connectors,6,EA,64000,DeepDive ROV Systems,,,120,2026-10-28,M3
+BUOY-SUB,Subsea distributed buoyancy,ROV connectors,24,EA,8400,DeepDive ROV Systems,,,90,2026-09-28,M3
+FENDER-DOLPHIN,Vessel fender + dolphin,Marine equipment,8,EA,96000,Aberdeen Steel Fab,,,120,2026-10-28,M3
+WALKWAY-GRATING,GRP walkway grating,Offshore structural,1800,M2,280,Aberdeen Steel Fab,,,60,2026-09-08,M2
+HANDRAIL-SS,SS316 handrail tubular,Offshore structural,2800,M,86,Copperline Metals,,,45,2026-08-29,M2
+LIFEBOAT-DAVIT,Lifeboat davit launching system,Marine equipment,4,EA,320000,,,,240,2027-01-06,M3
+LIFERAFT-25P,25-person life raft container,Marine equipment,12,EA,18000,,,,60,2026-09-28,M3
+VENT-AHU-EX,Ex-rated AHU,HVAC,6,EA,84000,,,,120,2026-10-28,M3
+HVAC-DAMPER-FG,Fire/gas damper,HVAC,28,EA,4200,,,,90,2026-09-28,M3
+FW-PUMP-ELEC,Electric firewater pump,Fire,4,EA,240000,,,,180,2026-11-07,M3
+GAS-DETECT-IR,IR gas detector,Instrumentation,96,EA,2800,DeepDive ROV Systems,,,90,2026-09-18,M3
+F&G-PANEL,F&G control panel,Automation,4,EA,145000,BluePeak Controls,,,150,2026-10-28,M3
+PAGA-SYSTEM,PAGA public address,Automation,1,LOT,380000,BluePeak Controls,,,180,2026-11-17,M3
+HELI-DECK-NET,Helideck perimeter safety net,Offshore structural,1,LOT,95000,Aberdeen Steel Fab,,,90,2026-10-18,M3
+MOORING-CHAIN,R4 mooring chain 95mm,Mooring,1800,M,980,,,,270,2026-12-17,M3
+ANCHOR-DEA,Drag embedment anchor,Mooring,8,EA,220000,,,,240,2026-12-17,M3
+DP-THRUSTER,Azimuth thruster 3 MW,Rotating equipment,4,EA,1850000,,,,360,2027-01-06,M3
+CRANE-OFFSHORE,Knuckle-boom crane 50T,Crane / lifting,2,EA,580000,,,,270,2026-12-17,M3
+CONN-WET-MATE,ROV wet-mate 24-pin connector,ROV connectors,24,EA,5600,DeepDive ROV Systems,,,90,2026-09-18,M3

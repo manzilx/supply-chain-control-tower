@@ -6,6 +6,8 @@ record so the caller can push it to the UI directly.
 
 from __future__ import annotations
 
+from ._cache import invalidates_cache
+
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
@@ -86,6 +88,7 @@ def _seed() -> None:
         if valve:
             pr = _create_pr_record(
                 project_id=rb.project_id,
+                tenant_id=rb.tenant_id,
                 item=valve,
                 buyer="K. Menon",
                 strategy="multi_source",
@@ -132,6 +135,7 @@ def _seed() -> None:
 def _create_pr_record(
     *,
     project_id: str,
+    tenant_id: str,
     item: Optional[BOMItem],
     code: Optional[str] = None,
     description: Optional[str] = None,
@@ -156,6 +160,7 @@ def _create_pr_record(
 
     pr = PurchaseRequisition(
         pr_no=pr_no,
+        tenant_id=tenant_id,
         project_id=project_id,
         bom_item_id=item.bom_item_id if item else None,
         code=resolved_code,
@@ -177,21 +182,40 @@ def _create_pr_record(
 # --- Public API: PRs ---------------------------------------------------------
 
 
-def list_prs() -> List[PurchaseRequisition]:
+def list_prs(tenant_id: Optional[str] = None) -> List[PurchaseRequisition]:
     _seed()
-    return sorted(_prs.values(), key=lambda p: p.created_at, reverse=True)
+    prs = sorted(_prs.values(), key=lambda p: p.created_at, reverse=True)
+    if tenant_id is None:
+        return prs
+    return [p for p in prs if p.tenant_id == tenant_id]
 
 
-def get_pr(pr_no: str) -> Optional[PurchaseRequisition]:
+def get_pr(pr_no: str, tenant_id: Optional[str] = None) -> Optional[PurchaseRequisition]:
     _seed()
-    return _prs.get(pr_no)
+    pr = _prs.get(pr_no)
+    if pr is None:
+        return None
+    if tenant_id is not None and pr.tenant_id != tenant_id:
+        return None
+    return pr
 
 
-def create_pr(request: CreatePRRequest) -> PurchaseRequisition:
+@invalidates_cache
+def create_pr(
+    request: CreatePRRequest,
+    tenant_id: Optional[str] = None,
+) -> Optional[PurchaseRequisition]:
     _seed()
+    # Resolve tenant from the project — every PR inherits its project's
+    # tenant (cannot create a PR on a project you don't own).
+    from .planning import get_project
+    project = get_project(request.project_id, tenant_id=tenant_id)
+    if project is None:
+        return None
     item = _bom_item(request.project_id, request.bom_item_id)
-    return _create_pr_record(
+    pr = _create_pr_record(
         project_id=request.project_id,
+        tenant_id=project.tenant_id,
         item=item,
         code=request.code,
         description=request.description,
@@ -203,6 +227,22 @@ def create_pr(request: CreatePRRequest) -> PurchaseRequisition:
         buyer=request.buyer,
         strategy=request.strategy,
     )
+    from .audit import emit
+    emit(
+        action="created",
+        entity_kind="pr",
+        entity_id=pr.pr_no,
+        subject=pr.pr_no,
+        summary=f"PR {pr.pr_no} created for {pr.code} · {pr.quantity} {pr.uom} · buyer {pr.buyer}",
+        source="api",
+        tenant_id=pr.tenant_id,
+        project_id=pr.project_id,
+        bom_item_id=pr.bom_item_id,
+        bom_code=pr.code,
+        pr_no=pr.pr_no,
+        metadata={"strategy": pr.strategy, "budget_value_usd": pr.budget_value_usd},
+    )
+    return pr
 
 
 def suggest_vendors(project_id: str, bom_item_id: Optional[str]) -> List[str]:
@@ -231,18 +271,30 @@ def suggest_vendors(project_id: str, bom_item_id: Optional[str]) -> List[str]:
 # --- Public API: RFQs --------------------------------------------------------
 
 
-def list_rfqs() -> List[RFQ]:
+def list_rfqs(tenant_id: Optional[str] = None) -> List[RFQ]:
     _seed()
-    return sorted(_rfqs.values(), key=lambda r: r.issued_at, reverse=True)
+    rfqs = sorted(_rfqs.values(), key=lambda r: r.issued_at, reverse=True)
+    if tenant_id is None:
+        return rfqs
+    return [r for r in rfqs if r.tenant_id == tenant_id]
 
 
-def get_rfq(rfq_no: str) -> Optional[RFQ]:
+def get_rfq(rfq_no: str, tenant_id: Optional[str] = None) -> Optional[RFQ]:
     _seed()
-    return _rfqs.get(rfq_no)
+    rfq = _rfqs.get(rfq_no)
+    if rfq is None:
+        return None
+    if tenant_id is not None and rfq.tenant_id != tenant_id:
+        return None
+    return rfq
 
 
-def get_quotes(rfq_no: str) -> List[Quote]:
+def get_quotes(rfq_no: str, tenant_id: Optional[str] = None) -> List[Quote]:
     _seed()
+    if tenant_id is not None:
+        rfq = _rfqs.get(rfq_no)
+        if rfq is None or rfq.tenant_id != tenant_id:
+            return []
     return list(_quotes_by_rfq.get(rfq_no, []))
 
 
@@ -257,6 +309,7 @@ def _issue_rfq_record(
     issued = _now()
     rfq = RFQ(
         rfq_no=rfq_no,
+        tenant_id=pr.tenant_id,
         pr_no=pr.pr_no,
         project_id=pr.project_id,
         code=pr.code,
@@ -277,25 +330,49 @@ def _issue_rfq_record(
     return rfq
 
 
-def issue_rfq(request: CreateRFQRequest) -> Optional[RFQ]:
+@invalidates_cache
+def issue_rfq(
+    request: CreateRFQRequest,
+    tenant_id: Optional[str] = None,
+) -> Optional[RFQ]:
     _seed()
     pr = _prs.get(request.pr_no)
     if not pr:
         return None
+    if tenant_id is not None and pr.tenant_id != tenant_id:
+        return None  # cross-tenant
     if pr.status not in {"draft", "rfq_issued"}:
         # Still allow re-issuing if in draft/rfq_issued state
         return None
-    return _issue_rfq_record(
+    rfq = _issue_rfq_record(
         pr=pr,
         vendors=request.vendors,
         due_in_days=request.due_in_days,
         notes=request.notes,
     )
+    from .audit import emit
+    emit(
+        action="issued",
+        entity_kind="rfq",
+        entity_id=rfq.rfq_no,
+        subject=rfq.rfq_no,
+        summary=f"RFQ {rfq.rfq_no} issued to {len(rfq.vendors)} vendors for {rfq.code}",
+        source="api",
+        tenant_id=rfq.tenant_id,
+        project_id=rfq.project_id,
+        bom_item_id=pr.bom_item_id,
+        bom_code=rfq.code,
+        pr_no=pr.pr_no,
+        rfq_no=rfq.rfq_no,
+        metadata={"vendors": list(rfq.vendors), "due_at": str(rfq.due_at)},
+    )
+    return rfq
 
 
 def _add_quote_record(rfq: RFQ, request: CreateQuoteRequest) -> Quote:
     quote = Quote(
         quote_id=_next("quote", "Q", width=5),
+        tenant_id=rfq.tenant_id,
         rfq_no=rfq.rfq_no,
         vendor=request.vendor.strip(),
         unit_price_usd=float(request.unit_price_usd),
@@ -318,21 +395,59 @@ def _add_quote_record(rfq: RFQ, request: CreateQuoteRequest) -> Quote:
     return quote
 
 
-def add_quote(rfq_no: str, request: CreateQuoteRequest) -> Optional[Quote]:
+@invalidates_cache
+def add_quote(
+    rfq_no: str,
+    request: CreateQuoteRequest,
+    tenant_id: Optional[str] = None,
+) -> Optional[Quote]:
     _seed()
     rfq = _rfqs.get(rfq_no)
     if not rfq:
         return None
-    return _add_quote_record(rfq, request)
+    if tenant_id is not None and rfq.tenant_id != tenant_id:
+        return None
+    quote = _add_quote_record(rfq, request)
+    from .audit import emit
+    pr = _prs.get(rfq.pr_no)
+    emit(
+        action="received",
+        entity_kind="quote",
+        entity_id=quote.quote_id,
+        subject=f"{quote.vendor} → {rfq.rfq_no}",
+        summary=(
+            f"Quote {quote.quote_id} from {quote.vendor}: "
+            f"${quote.unit_price_usd:,.2f}/u × {quote.quantity:.0f} = ${quote.total_usd:,.0f}, "
+            f"lead {quote.lead_time_days}d, {quote.incoterm}"
+        ),
+        source="api",
+        tenant_id=rfq.tenant_id,
+        project_id=rfq.project_id,
+        bom_item_id=pr.bom_item_id if pr else None,
+        bom_code=rfq.code,
+        pr_no=rfq.pr_no,
+        rfq_no=rfq.rfq_no,
+        quote_id=quote.quote_id,
+        vendor=quote.vendor,
+        metadata={
+            "unit_price_usd": quote.unit_price_usd,
+            "lead_time_days": quote.lead_time_days,
+            "incoterm": quote.incoterm,
+            "validity_days": quote.validity_days,
+        },
+    )
+    return quote
 
 
 # --- Quote comparison + award -----------------------------------------------
 
 
-def compare_quotes(rfq_no: str) -> Optional[QuoteComparison]:
+def compare_quotes(rfq_no: str, tenant_id: Optional[str] = None) -> Optional[QuoteComparison]:
     _seed()
     rfq = _rfqs.get(rfq_no)
     if not rfq:
+        return None
+    if tenant_id is not None and rfq.tenant_id != tenant_id:
         return None
     quotes = list(_quotes_by_rfq.get(rfq_no, []))
     if not quotes:
@@ -412,10 +527,17 @@ def compare_quotes(rfq_no: str) -> Optional[QuoteComparison]:
     )
 
 
-def award_rfq(rfq_no: str, request: AwardRFQRequest) -> Optional[Award]:
+@invalidates_cache
+def award_rfq(
+    rfq_no: str,
+    request: AwardRFQRequest,
+    tenant_id: Optional[str] = None,
+) -> Optional[Award]:
     _seed()
     rfq = _rfqs.get(rfq_no)
     if not rfq:
+        return None
+    if tenant_id is not None and rfq.tenant_id != tenant_id:
         return None
     quotes = _quotes_by_rfq.get(rfq_no, [])
     quote = next((q for q in quotes if q.quote_id == request.quote_id), None)
@@ -426,7 +548,10 @@ def award_rfq(rfq_no: str, request: AwardRFQRequest) -> Optional[Award]:
     rationale = request.rationale
     if not rationale:
         comparison = compare_quotes(rfq_no)
-        rationale = (
+        # Try LLM-generated rationale citing actual quote diffs + vendor profile.
+        # Falls back to the templated comparison rationale if LLM unavailable.
+        llm_rationale = _llm_award_rationale(rfq=rfq, quotes=quotes, winner=quote, comparison=comparison)
+        rationale = llm_rationale or (
             comparison.recommendation_rationale
             if comparison and comparison.recommendation_rationale
             else f"Awarded to {quote.vendor}."
@@ -434,6 +559,7 @@ def award_rfq(rfq_no: str, request: AwardRFQRequest) -> Optional[Award]:
 
     award = Award(
         award_id=award_id,
+        tenant_id=rfq.tenant_id,
         rfq_no=rfq_no,
         pr_no=rfq.pr_no,
         vendor=quote.vendor,
@@ -457,6 +583,54 @@ def award_rfq(rfq_no: str, request: AwardRFQRequest) -> Optional[Award]:
         pr.status = "po_created"
         pr.po_no = po.po_no
         _prs[rfq.pr_no] = pr
+
+    from .audit import emit
+    emit(
+        action="awarded",
+        entity_kind="award",
+        entity_id=award.award_id,
+        subject=f"{award.vendor} · {rfq.code}",
+        summary=f"Awarded {award.award_id} to {award.vendor} for ${award.awarded_value_usd:,.0f}",
+        actor=award.awarded_by,
+        source="api",
+        tenant_id=award.tenant_id,
+        project_id=rfq.project_id,
+        bom_item_id=pr.bom_item_id if pr else None,
+        bom_code=rfq.code,
+        pr_no=rfq.pr_no,
+        rfq_no=rfq.rfq_no,
+        quote_id=quote.quote_id,
+        award_id=award.award_id,
+        vendor=award.vendor,
+        metadata={
+            "rationale": award.rationale[:300],
+            "lead_time_days": quote.lead_time_days,
+            "incoterm": quote.incoterm,
+        },
+    )
+    emit(
+        action="po_drafted",
+        entity_kind="po",
+        entity_id=po.po_no,
+        subject=po.po_no,
+        summary=f"PO {po.po_no} drafted to {po.vendor} · ${po.value_usd:,.0f} · need-by {po.need_by or 'TBD'}",
+        actor=award.awarded_by,
+        source="api",
+        tenant_id=po.tenant_id,
+        project_id=po.project_id,
+        bom_item_id=pr.bom_item_id if pr else None,
+        bom_code=po.code,
+        pr_no=po.pr_no,
+        rfq_no=po.rfq_no,
+        award_id=po.award_id,
+        po_no=po.po_no,
+        vendor=po.vendor,
+        metadata={
+            "value_usd": po.value_usd,
+            "lead_time_days": po.lead_time_days,
+            "incoterm": po.incoterm,
+        },
+    )
     return award
 
 
@@ -470,6 +644,7 @@ def _create_po_from_award(
     po_no = _next("po", "SPO", width=5)
     po = SourcingPO(
         po_no=po_no,
+        tenant_id=award.tenant_id,
         pr_no=award.pr_no,
         rfq_no=rfq.rfq_no,
         award_id=award.award_id,
@@ -494,25 +669,38 @@ def _create_po_from_award(
 # --- Public API: Awards + POs ------------------------------------------------
 
 
-def list_awards() -> List[Award]:
+def list_awards(tenant_id: Optional[str] = None) -> List[Award]:
     _seed()
-    return sorted(_awards.values(), key=lambda a: a.awarded_at, reverse=True)
+    awards = sorted(_awards.values(), key=lambda a: a.awarded_at, reverse=True)
+    if tenant_id is None:
+        return awards
+    return [a for a in awards if a.tenant_id == tenant_id]
 
 
-def list_pos() -> List[SourcingPO]:
+def list_pos(tenant_id: Optional[str] = None) -> List[SourcingPO]:
     _seed()
-    return sorted(_pos.values(), key=lambda p: p.created_at, reverse=True)
+    pos = sorted(_pos.values(), key=lambda p: p.created_at, reverse=True)
+    if tenant_id is None:
+        return pos
+    return [p for p in pos if p.tenant_id == tenant_id]
 
 
-def get_po(po_no: str) -> Optional[SourcingPO]:
+def get_po(po_no: str, tenant_id: Optional[str] = None) -> Optional[SourcingPO]:
     _seed()
-    return _pos.get(po_no)
+    po = _pos.get(po_no)
+    if po is None:
+        return None
+    if tenant_id is not None and po.tenant_id != tenant_id:
+        return None
+    return po
 
 
-def build_timeline(po_no: str) -> Optional[SourcingTimeline]:
+def build_timeline(po_no: str, tenant_id: Optional[str] = None) -> Optional[SourcingTimeline]:
     _seed()
     po = _pos.get(po_no)
     if not po:
+        return None
+    if tenant_id is not None and po.tenant_id != tenant_id:
         return None
     pr = _prs.get(po.pr_no)
     rfq = _rfqs.get(po.rfq_no)
@@ -572,3 +760,310 @@ def build_timeline(po_no: str) -> Optional[SourcingTimeline]:
 
     events.sort(key=lambda e: e.at)
     return SourcingTimeline(po_no=po_no, events=events)
+
+
+# --- LLM helpers (Grok-driven prose) -----------------------------------------
+
+
+def _llm_award_rationale(
+    *,
+    rfq: RFQ,
+    quotes: list,
+    winner: Quote,
+    comparison: Optional[QuoteComparison],
+) -> Optional[str]:
+    """Generate a 100-150 word award rationale via Grok.
+
+    Cites concrete diffs (price gap, lead-time gap, OTD score) and any risk
+    flags on the winner. Returns None on failure so caller can fall back to
+    the templated comparison rationale.
+    """
+
+    from .llm import grok_chat, is_enabled
+    from .vendor_intel import get_vendor_scorecard
+
+    if not is_enabled():
+        return None
+
+    # Sort quotes by total_usd for clean diff narrative
+    sorted_q = sorted(quotes, key=lambda q: q.total_usd)
+    lowest = sorted_q[0]
+    fastest = min(quotes, key=lambda q: q.lead_time_days)
+
+    win_score = get_vendor_scorecard(winner.vendor)
+
+    summary = {
+        "rfq": {
+            "code": rfq.code,
+            "description": rfq.description,
+            "quantity": rfq.quantity,
+            "uom": rfq.uom,
+        },
+        "winner": {
+            "vendor": winner.vendor,
+            "unit_price_usd": winner.unit_price_usd,
+            "total_usd": winner.total_usd,
+            "lead_time_days": winner.lead_time_days,
+            "notes": winner.notes,
+            "scorecard": (
+                {
+                    "composite_score": win_score.composite_score,
+                    "composite_grade": win_score.composite_grade,
+                    "flags": win_score.flags,
+                    "single_source_exposure": win_score.single_source_exposure,
+                }
+                if win_score
+                else None
+            ),
+        },
+        "alternates": [
+            {
+                "vendor": q.vendor,
+                "total_usd": q.total_usd,
+                "lead_time_days": q.lead_time_days,
+                "delta_vs_winner_pct": round((q.total_usd - winner.total_usd) / winner.total_usd * 100, 1) if winner.total_usd else 0,
+            }
+            for q in sorted_q
+            if q.quote_id != winner.quote_id
+        ],
+        "lowest_total": {"vendor": lowest.vendor, "total_usd": lowest.total_usd},
+        "fastest_lead": {"vendor": fastest.vendor, "lead_time_days": fastest.lead_time_days},
+        "engine_recommendation": comparison.recommended_vendor if comparison else None,
+    }
+
+    system = (
+        "You write concise award rationales for an engineering procurement team. "
+        "Cite concrete numbers from the data — price gaps, lead-time gaps, scorecard "
+        "components, risk flags. If the winner was not the engine's recommendation "
+        "or the lowest price, name the trade-off explicitly. Output 2-3 sentences, "
+        "no more than 100 words. Plain prose, no markdown."
+    )
+    import json as _json
+    user = (
+        "Write the award rationale for this RFQ. Data follows:\n\n"
+        + _json.dumps(summary, default=str, indent=2)
+    )
+    return grok_chat(system, user, max_tokens=250, temperature=0.3, timeout=25)
+
+
+# --- SAP CPI submission ------------------------------------------------------
+
+
+def submit_pr_to_sap(pr_no: str, tenant_id: Optional[str] = None):
+    """Submit a draft PR to SAP via CPI. Updates the in-memory PR with the
+    SAP doc number and status. Returns the updated PR or None if not found.
+    """
+
+    from .audit import emit
+    from .integrations import sap_cpi
+    pr = _prs.get(pr_no)
+    if not pr:
+        return None
+    if tenant_id is not None and pr.tenant_id != tenant_id:
+        return None
+    pr.sap_status = "submitting"
+    pr.sap_error = None
+    _prs[pr_no] = pr
+
+    result = sap_cpi.submit_pr(pr)
+    pr.sap_status = result["sap_status"]
+    pr.sap_pr_no = result.get("sap_pr_no")
+    pr.sap_error = result.get("error")
+    pr.sap_last_synced_at = _now()
+    _prs[pr_no] = pr
+
+    emit(
+        action="submitted_to_sap",
+        entity_kind="pr",
+        entity_id=pr.pr_no,
+        subject=pr.pr_no,
+        summary=(
+            f"PR {pr.pr_no} → SAP: {pr.sap_status}"
+            + (f" (doc {pr.sap_pr_no})" if pr.sap_pr_no else "")
+            + (f" — {pr.sap_error}" if pr.sap_error else "")
+        ),
+        actor="sap_cpi",
+        source="api",
+        tenant_id=pr.tenant_id,
+        project_id=pr.project_id,
+        bom_item_id=pr.bom_item_id,
+        bom_code=pr.code,
+        pr_no=pr.pr_no,
+        sap_doc_no=pr.sap_pr_no,
+        metadata={"sap_status": pr.sap_status, "sap_error": pr.sap_error},
+    )
+    return pr
+
+
+def submit_po_to_sap(po_no: str, tenant_id: Optional[str] = None):
+    """Submit a sourcing PO to SAP via CPI."""
+
+    from .audit import emit
+    from .integrations import sap_cpi
+    po = _pos.get(po_no)
+    if not po:
+        return None
+    if tenant_id is not None and po.tenant_id != tenant_id:
+        return None
+    po.sap_status = "submitting"
+    po.sap_error = None
+    _pos[po_no] = po
+
+    result = sap_cpi.submit_po(po)
+    po.sap_status = result["sap_status"]
+    po.sap_po_no = result.get("sap_po_no")
+    po.sap_error = result.get("error")
+    po.sap_last_synced_at = _now()
+    _pos[po_no] = po
+
+    pr_for_po = _prs.get(po.pr_no)
+    emit(
+        action="submitted_to_sap",
+        entity_kind="po",
+        entity_id=po.po_no,
+        subject=po.po_no,
+        summary=(
+            f"PO {po.po_no} → SAP: {po.sap_status}"
+            + (f" (doc {po.sap_po_no})" if po.sap_po_no else "")
+            + (f" — {po.sap_error}" if po.sap_error else "")
+        ),
+        actor="sap_cpi",
+        source="api",
+        tenant_id=po.tenant_id,
+        project_id=po.project_id,
+        bom_item_id=pr_for_po.bom_item_id if pr_for_po else None,
+        bom_code=po.code,
+        pr_no=po.pr_no,
+        rfq_no=po.rfq_no,
+        award_id=po.award_id,
+        po_no=po.po_no,
+        vendor=po.vendor,
+        sap_doc_no=po.sap_po_no,
+        metadata={"sap_status": po.sap_status, "sap_error": po.sap_error},
+    )
+    return po
+
+
+def apply_sap_event(event) -> tuple[bool, Optional[str], Optional[str], Optional[str]]:
+    """Apply an inbound SAP event to the matching PR or PO.
+
+    Match priority: ct_ref (Control Tower's PR/PO number) > sap_doc_no.
+    Returns (accepted, matched_ct_ref, applied_to, note).
+    """
+
+    from .audit import emit
+
+    def _record(kind: str, ent_id: str, ct_ref: str, action_str: str, extra_meta: dict | None = None):
+        # Map SAP event kind to a strong audit action when possible
+        action_map = {
+            "pr_released": "approved",
+            "pr_rejected": "rejected",
+            "po_released": "approved",
+            "po_blocked": "rejected",
+            "gr_posted": "gr_posted",
+            "ir_posted": "ir_posted",
+            "po_closed": "delivered",
+        }
+        action_value = action_map.get(event.kind, "sap_status_changed")
+        # Enrich with vendor + bom_code from the linked entity
+        vendor = None
+        bom_code = None
+        project_id = None
+        bom_item_id = None
+        event_tenant_id = ""
+        if kind == "po":
+            po_ref = _pos.get(ct_ref)
+            if po_ref:
+                vendor = po_ref.vendor
+                bom_code = po_ref.code
+                project_id = po_ref.project_id
+                event_tenant_id = po_ref.tenant_id
+                pr_for_po = _prs.get(po_ref.pr_no)
+                if pr_for_po:
+                    bom_item_id = pr_for_po.bom_item_id
+        elif kind == "pr":
+            pr_ref = _prs.get(ct_ref)
+            if pr_ref:
+                bom_code = pr_ref.code
+                bom_item_id = pr_ref.bom_item_id
+                project_id = pr_ref.project_id
+                event_tenant_id = pr_ref.tenant_id
+        emit(
+            action=action_value,  # type: ignore[arg-type]
+            entity_kind=kind,  # type: ignore[arg-type]
+            entity_id=ent_id,
+            subject=f"SAP · {event.sap_doc_no}",
+            summary=action_str,
+            actor="sap_cpi",
+            source="sap_webhook",
+            tenant_id=event_tenant_id,
+            project_id=project_id,
+            bom_item_id=bom_item_id,
+            bom_code=bom_code,
+            pr_no=ct_ref if kind == "pr" else None,
+            po_no=ct_ref if kind == "po" else None,
+            vendor=vendor,
+            sap_doc_no=event.sap_doc_no,
+            metadata={
+                "kind": event.kind,
+                "quantity": event.quantity,
+                "value_usd": event.value_usd,
+                **(extra_meta or {}),
+            },
+        )
+
+    # Try CT ref first
+    if event.ct_ref:
+        if event.ct_ref in _prs:
+            _apply_to_pr(_prs[event.ct_ref], event)
+            _record("pr", event.ct_ref, event.ct_ref, f"SAP event {event.kind} applied to PR {event.ct_ref}")
+            return True, event.ct_ref, "PR", f"applied {event.kind} to PR {event.ct_ref}"
+        if event.ct_ref in _pos:
+            _apply_to_po(_pos[event.ct_ref], event)
+            _record("po", event.ct_ref, event.ct_ref, f"SAP event {event.kind} applied to PO {event.ct_ref}")
+            return True, event.ct_ref, "PO", f"applied {event.kind} to PO {event.ct_ref}"
+
+    # Fallback: match by SAP doc number
+    for pr in _prs.values():
+        if pr.sap_pr_no == event.sap_doc_no:
+            _apply_to_pr(pr, event)
+            _record("pr", pr.pr_no, pr.pr_no, f"SAP event {event.kind} applied to PR {pr.pr_no}")
+            return True, pr.pr_no, "PR", f"applied {event.kind} to PR {pr.pr_no}"
+    for po in _pos.values():
+        if po.sap_po_no == event.sap_doc_no:
+            _apply_to_po(po, event)
+            _record("po", po.po_no, po.po_no, f"SAP event {event.kind} applied to PO {po.po_no}")
+            return True, po.po_no, "PO", f"applied {event.kind} to PO {po.po_no}"
+
+    return False, None, None, f"no matching PR/PO for sap_doc_no={event.sap_doc_no}"
+
+
+def _apply_to_pr(pr: PurchaseRequisition, event) -> None:
+    pr.sap_last_synced_at = _now()
+    if event.kind == "pr_released":
+        pr.sap_status = "synced"
+        pr.status = "rfq_issued"  # SAP-released PRs are ready to source
+    elif event.kind == "pr_rejected":
+        pr.sap_status = "failed"
+        pr.sap_error = "Rejected in SAP"
+    _prs[pr.pr_no] = pr
+
+
+def _apply_to_po(po: SourcingPO, event) -> None:
+    po.sap_last_synced_at = _now()
+    if event.kind == "po_released":
+        po.sap_status = "synced"
+        po.status = "released"
+    elif event.kind == "po_blocked":
+        po.sap_status = "failed"
+        po.sap_error = "Blocked in SAP"
+    elif event.kind == "gr_posted" and event.quantity is not None:
+        po.sap_gr_qty = (po.sap_gr_qty or 0) + float(event.quantity)
+        if po.sap_gr_qty >= po.quantity:
+            po.status = "delivered"
+    elif event.kind == "ir_posted" and event.value_usd is not None:
+        po.sap_ir_value_usd = (po.sap_ir_value_usd or 0) + float(event.value_usd)
+    elif event.kind == "po_closed":
+        po.status = "delivered"
+    _pos[po.po_no] = po
+

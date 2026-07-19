@@ -1,0 +1,10 @@
+code,description,category,quantity,uom,unit_cost_usd,supplier_name,spec_doc_id,drawing_id,long_lead_days,planned_need_date,milestone_code,status
+FPSO-EXEC-001,Topsides module skid 100 (received),Offshore structural,1,EA,3800000,Aberdeen Steel Fab,SPEC-FPSO-EXEC-01,DRG-FPSO-EXEC-01,360,2026-07-30,M2,delivered
+FPSO-EXEC-002,Process gas turbine generator (received),Rotating equipment,2,EA,2400000,Aberdeen Steel Fab,SPEC-FPSO-EXEC-02,,330,2026-08-15,M2,delivered
+FPSO-EXEC-003,Subsea hi-temp risers (received),Subsea cables,4,EA,980000,NorthCable Subsea,SPEC-FPSO-EXEC-03,,280,2026-08-30,M2,delivered
+FPSO-EXEC-004,ROV master tooling kit (received),ROV connectors,1,EA,420000,DeepDive ROV Systems,SPEC-FPSO-EXEC-04,,120,2026-09-15,M2,delivered
+FPSO-EXEC-005,Cargo crane offshore 80T (received),Crane / lifting,2,EA,860000,Aberdeen Steel Fab,SPEC-FPSO-EXEC-05,,240,2026-09-30,M3,delivered
+FPSO-EXEC-006,Inert gas generator (ordered),Process,2,EA,640000,NorthCable Subsea,SPEC-FPSO-EXEC-06,,180,2026-11-30,M3,ordered
+FPSO-EXEC-007,HVAC ex-rated AHU bank (planned),HVAC,4,EA,180000,,,,150,2026-12-15,M3,planned
+FPSO-EXEC-008,Subsea well control module (planned),Automation,2,EA,1450000,DeepDive ROV Systems,,,210,2027-01-15,M4,planned
+FPSO-EXEC-009,Marine paint topcoat campaign (planned),Marine epoxy,2400,L,32,Coastline Marine Coatings,,,45,2027-02-15,M4,planned

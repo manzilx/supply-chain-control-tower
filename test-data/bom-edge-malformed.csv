@@ -1,0 +1,13 @@
+code,description,category,quantity,uom,unit_cost_usd,supplier_name,spec_doc_id,drawing_id,long_lead_days,planned_need_date,milestone_code,status
+EDGE-OK-01,Healthy row for control,Electrical,4,EA,1200,Copperline Metals,SPEC-EDGE-01,,60,2026-09-30,M2,planned
+,Missing code,Electrical,2,EA,500,Copperline Metals,,,,,M3,planned
+EDGE-NOCODE,,Electrical,2,EA,500,Copperline Metals,,,,,M3,planned
+EDGE-BADQTY,Bad quantity (text),Electrical,abc,EA,500,Copperline Metals,,,,,M3,planned
+EDGE-NEGQTY,Negative quantity,Electrical,-3,EA,500,Copperline Metals,,,,,M3,planned
+EDGE-BADCOST,Bad unit cost,Electrical,4,EA,not-a-number,Copperline Metals,,,,,M3,planned
+EDGE-BADDATE,Bad need-by date,Electrical,4,EA,500,Copperline Metals,,,30,32/13/2026,M3,planned
+EDGE-BADSTATUS,Unknown status (should warn + default),Electrical,4,EA,500,Copperline Metals,,,30,2026-09-30,M3,super_dispatched
+EDGE-BADLEAD,Bad long-lead days,Electrical,4,EA,500,Copperline Metals,,,fast,2026-09-30,M3,planned
+EDGE-OK-02,"Quoted, contains, commas",Electrical,12,EA,2000,Copperline Metals,SPEC-EDGE-02,,45,2026-09-30,M3,planned
+EDGE-OK-03,Unicode é ñ 中 — long desc shouldn't break the upload,Process,1,EA,9999,Helios Cast & Forge,SPEC-EDGE-03,,90,2026-10-15,M3,delivered
+EDGE-OK-04,Status normalised to lower-case,Process,2,EA,1500,,,,30,2026-09-30,M2,ORDERED

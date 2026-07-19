@@ -1,12 +1,15 @@
 """Agent engine.
 
-Three modes:
+Two modes:
 1. Deterministic router (default, always works, no API key) — keyword match
    the user message to tools, run them, format a response.
-2. Claude tool-calling (opt-in via ANTHROPIC_API_KEY) — Claude plans tool
-   calls, we execute, loop until it returns a final message.
-3. OpenAI tool-calling is not implemented here to keep the module small;
-   the deterministic path is the production-grade fallback.
+2. Grok tool-calling (opt-in via XAI_API_KEY) — Grok plans tool calls via the
+   OpenAI-compatible chat-completions API, we execute, loop until it returns
+   a final message.
+
+xAI's API shape mirrors OpenAI's tool-calling, NOT Anthropic Messages — tools
+are wrapped in {"type": "function", "function": {...}}, tool calls return
+under message.tool_calls, and tool results go back as {"role": "tool", ...}.
 """
 
 from __future__ import annotations
@@ -28,9 +31,10 @@ from .schemas import (
 )
 
 
-MAX_CLAUDE_TURNS = 6  # tool-use loops before we force a final reply
-CLAUDE_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
-CLAUDE_BASE = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1").rstrip("/")
+MAX_TURNS = 6  # tool-use loops before we force a final reply
+GROK_MODEL = os.getenv("XAI_MODEL", "grok-4-1-fast-reasoning")
+GROK_BASE = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1").rstrip("/")
+GROK_REASONING_EFFORT = os.getenv("XAI_REASONING_EFFORT", "").strip()  # "low" | "high" | ""
 
 
 # --- Deterministic router ---------------------------------------------------
@@ -82,6 +86,28 @@ def _extract_project(message: str) -> Optional[str]:
     return match.group(0).upper() if match else None
 
 
+def _proposed_vendor_from_message(message: str) -> dict:
+    """Best-effort args for propose_vendor_onboarding in deterministic mode."""
+    msg = message.lower()
+    category = "Forged valves" if "valve" in msg else "General supplies"
+    if "plc" in msg or "control panel" in msg:
+        category = "PLC and control panels"
+    elif "copper" in msg or "busbar" in msg:
+        category = "Copper busbars"
+    name_match = re.search(
+        r"(?:called|named)\s+([A-Z][\w\s&.-]{2,40})",
+        message,
+        re.IGNORECASE,
+    )
+    if name_match:
+        name = name_match.group(1).strip()
+    elif "backup" in msg:
+        name = f"Backup {category} Supplier"
+    else:
+        name = f"Proposed {category} Vendor"
+    return {"name": name, "category": category, "country": "Norway"}
+
+
 def _detect_tone(message: str) -> str:
     msg = message.lower()
     if any(k in msg for k in ["urgent", "critical", "asap", "48"]):
@@ -97,6 +123,11 @@ def _plan_tools(message: str, persona: AgentPersona) -> List[Tuple[str, dict]]:
     po = _extract_po_number(message)
     vendor = _extract_vendor(message)
     project = _extract_project(message)
+
+    # AI propose → approval gate for new vendors
+    if ("propose" in msg or "onboard" in msg) and ("vendor" in msg or "supplier" in msg):
+        plan.append(("propose_vendor_onboarding", _proposed_vendor_from_message(message)))
+        return plan
 
     # Reporting
     if persona == "reporting" or any(k in msg for k in ["weekly plan", "action plan", "this week", "briefing"]):
@@ -194,18 +225,10 @@ def _format_reply(message: str, persona: AgentPersona, calls: List[ToolCallRecor
     elif persona == "reporting":
         hints.append("Open `/overview` for the weekly plan cards and KPI snapshot.")
 
-    # If a weekly plan was invoked, include top items inline
-    for c in calls:
-        if c.tool == "build_weekly_plan" and c.output_preview and isinstance(c.output_preview, dict):
-            plan_dict = c.output_preview
-            items = plan_dict.get("items") or []
-            if items:
-                lines.append("")
-                lines.append("Top actions:")
-                for i in items[:4]:
-                    lines.append(
-                        f"  [{i.get('priority')}] {i.get('title')} — {i.get('why')[:120]}"
-                    )
+    # Structured tool outputs (weekly plan, expediting queue, vendors, etc.)
+    # are rendered as rich React tables by the frontend (see StructuredOutputs
+    # in app/agent/page.tsx). Don't duplicate them in the prose reply — keep
+    # this text short.
 
     if hints:
         lines.append("")
@@ -241,7 +264,7 @@ def dispatch_deterministic(message: str) -> ChatReply:
     )
 
 
-# --- Claude path ------------------------------------------------------------
+# --- Grok path (xAI, OpenAI-compatible chat-completions) --------------------
 
 
 _SYSTEM_PROMPT = (
@@ -250,105 +273,140 @@ _SYSTEM_PROMPT = (
     "commercial rollups, procurement plans, and what-if simulations. "
     "Use tools to answer factually — don't guess figures. "
     "When you return a recommendation, include: why, expected impact, confidence, and which data you used. "
-    "Be concise, operational, and specific. If the user asks for an email, draft it using the tool."
+    "Be concise, operational, and specific. If the user asks for an email, draft it using the tool.\n\n"
+    "FORMATTING RULES (the UI renders GitHub-flavoured markdown):\n"
+    "- Whenever you list more than 2 items with multiple fields (actions, POs, vendors, risks, "
+    "  shipments, quotes, etc.), render them as a GFM markdown table — NOT a numbered list with "
+    "  pipe-separated fields.\n"
+    "- Keep prose above and below the table short. The table is the answer.\n"
+    "- Pick 4-7 of the most useful columns; don't dump every field.\n"
+    "- Use `**bold**` for headers/labels and `\\`monospace\\`` for IDs (PO-12345, RFQ-001, project codes).\n"
+    "- Currency: `$1.2M`, `$45K`. Dates: `May 12`. Durations: `5d`.\n"
+    "- Tables look like:\n"
+    "    | Priority | Action | Owner | Due | Confidence |\n"
+    "    |---|---|---|---|---|\n"
+    "    | P1 | Release spec for PLC-S7-IO48 | Engineering | 5d | 92% |"
 )
 
 
-def _claude_tools_schema() -> list:
+def _grok_tools_schema() -> list:
+    """OpenAI-style function tool schema (xAI follows the same shape)."""
+
     return [
         {
-            "name": t.name,
-            "description": t.description,
-            "input_schema": t.input_schema,
+            "type": "function",
+            "function": {
+                "name": t.name,
+                "description": t.description,
+                "parameters": t.input_schema,
+            },
         }
         for t in TOOLS.values()
     ]
 
 
-def _claude_call(messages: list, tools: list) -> dict:
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+def _grok_call(messages: list, tools: list) -> dict:
+    api_key = os.getenv("XAI_API_KEY", "").strip()
     if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY missing")
-    body = {
-        "model": CLAUDE_MODEL,
-        "max_tokens": 1500,
-        "system": _SYSTEM_PROMPT,
-        "tools": tools,
+        raise RuntimeError("XAI_API_KEY missing")
+    body: dict = {
+        "model": GROK_MODEL,
         "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto",
+        "temperature": 0.2,
     }
+    if GROK_REASONING_EFFORT:
+        # Reasoning models accept "low" or "high"; off when empty.
+        body["reasoning_effort"] = GROK_REASONING_EFFORT
     req = request.Request(
-        url=f"{CLAUDE_BASE}/messages",
+        url=f"{GROK_BASE}/chat/completions",
         data=json.dumps(body).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
+            "Authorization": f"Bearer {api_key}",
         },
         method="POST",
     )
-    with request.urlopen(req, timeout=30) as response:
+    with request.urlopen(req, timeout=60) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
-def dispatch_claude(message: str, history: List[ChatTurn]) -> ChatReply:
-    tools_schema = _claude_tools_schema()
-    messages: list = []
-    for turn in history[-6:]:  # last 6 turns for context
-        if turn.role == "user":
-            messages.append({"role": "user", "content": turn.content})
-        else:
-            messages.append({"role": "assistant", "content": turn.content})
+def dispatch_grok(
+    message: str,
+    history: List[ChatTurn],
+    page: str | None = None,
+    on_event=None,
+) -> ChatReply:
+    tools_schema = _grok_tools_schema()
+
+    system = _SYSTEM_PROMPT
+    if page:
+        system += f"\n\nThe user is currently viewing the '{page}' page of the app — bias your answer toward that context."
+
+    messages: list = [{"role": "system", "content": system}]
+    for turn in history[-6:]:  # last 6 turns of conversational context
+        messages.append({"role": turn.role, "content": turn.content})
     messages.append({"role": "user", "content": message})
 
     tool_records: List[ToolCallRecord] = []
     final_text = ""
 
-    for _ in range(MAX_CLAUDE_TURNS):
-        response = _claude_call(messages, tools_schema)
-        stop_reason = response.get("stop_reason")
-        content_blocks = response.get("content", [])
+    def _emit(kind: str, detail: str) -> None:
+        if on_event is not None:
+            try:
+                on_event(kind, detail)
+            except Exception:  # noqa: BLE001 — UI events must never break the loop
+                pass
 
-        assistant_content_blocks: list = []
-        tool_results: list = []
+    for _ in range(MAX_TURNS):
+        _emit("status", "thinking")
+        response = _grok_call(messages, tools_schema)
+        choice = (response.get("choices") or [{}])[0]
+        msg = choice.get("message") or {}
+        finish_reason = choice.get("finish_reason")
 
-        for block in content_blocks:
-            btype = block.get("type")
-            if btype == "text":
-                final_text += block.get("text", "")
-                assistant_content_blocks.append(block)
-            elif btype == "tool_use":
-                assistant_content_blocks.append(block)
-                tool_name = block.get("name", "")
-                tool_input = block.get("input", {}) or {}
-                tool_id = block.get("id")
-                try:
-                    record = invoke(tool_name, tool_input)
-                    tool_records.append(record)
-                    result_text = json.dumps(
-                        {
-                            "summary": record.output_summary,
-                            "data": record.output_preview,
-                        },
-                        default=str,
-                    )
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tool_id,
-                        "content": result_text,
-                    })
-                except Exception as e:  # noqa: BLE001
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tool_id,
-                        "is_error": True,
-                        "content": str(e),
-                    })
+        # Append the assistant turn to history (with any tool_calls intact).
+        assistant_msg: dict = {"role": "assistant", "content": msg.get("content")}
+        if msg.get("tool_calls"):
+            assistant_msg["tool_calls"] = msg["tool_calls"]
+        messages.append(assistant_msg)
 
-        messages.append({"role": "assistant", "content": assistant_content_blocks})
-        if tool_results:
-            messages.append({"role": "user", "content": tool_results})
+        text = msg.get("content")
+        if text:
+            final_text += text
 
-        if stop_reason != "tool_use":
+        tool_calls_raw = msg.get("tool_calls") or []
+        if not tool_calls_raw:
+            break
+
+        for tc in tool_calls_raw:
+            fn = tc.get("function") or {}
+            tool_name = fn.get("name", "")
+            _emit("tool", tool_name)
+            try:
+                tool_input = json.loads(fn.get("arguments") or "{}")
+            except json.JSONDecodeError:
+                tool_input = {}
+            try:
+                record = invoke(tool_name, tool_input)
+                tool_records.append(record)
+                result_text = json.dumps(
+                    {
+                        "summary": record.output_summary,
+                        "data": record.output_preview,
+                    },
+                    default=str,
+                )
+            except Exception as e:  # noqa: BLE001
+                result_text = json.dumps({"error": str(e)})
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.get("id"),
+                "content": result_text,
+            })
+
+        if finish_reason != "tool_calls":
             break
 
     persona = _detect_persona(message)
@@ -356,7 +414,7 @@ def dispatch_claude(message: str, history: List[ChatTurn]) -> ChatReply:
         reply=final_text.strip() or "(no text response)",
         tool_calls=tool_records,
         persona=persona,
-        source="claude",
+        source="grok",
         generated_at=datetime.now(timezone.utc),
     )
 
@@ -364,11 +422,16 @@ def dispatch_claude(message: str, history: List[ChatTurn]) -> ChatReply:
 # --- Entry point ------------------------------------------------------------
 
 
-def dispatch(message: str, history: List[ChatTurn]) -> ChatReply:
-    if os.getenv("ANTHROPIC_API_KEY", "").strip():
+def dispatch(
+    message: str,
+    history: List[ChatTurn],
+    page: str | None = None,
+    on_event=None,
+) -> ChatReply:
+    if os.getenv("XAI_API_KEY", "").strip():
         try:
-            return dispatch_claude(message, history)
-        except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, RuntimeError):
-            # Fall through to deterministic on any LLM hiccup
+            return dispatch_grok(message, history, page=page, on_event=on_event)
+        except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError, KeyError, RuntimeError):
+            # Fall through to deterministic on any LLM hiccup.
             pass
     return dispatch_deterministic(message)

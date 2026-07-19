@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from "react";
 
+import { AnimatedKpiTile, Donut, MotionPanel, URGENCY_COLOR } from "@/components/charts";
 import { EmptyState } from "@/components/empty-state";
 import { FollowupModal } from "@/components/followup-modal";
-import { KpiTile } from "@/components/kpi-tile";
 import { PageHeader } from "@/components/page-header";
 import { fetchExpediteQueue } from "@/lib/api";
 import { formatMoney } from "@/lib/format-date";
@@ -55,18 +55,44 @@ export default function ExpeditingPage() {
       ) : (
         <>
           <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <KpiTile label="Total Orders" value={String(summary.total)} />
-            <KpiTile label="OK" value={String(summary.ok)} tone="good" />
-            <KpiTile label="Watch" value={String(summary.watch)} />
-            <KpiTile label="Nudge" value={String(summary.nudge)} tone={summary.nudge ? "warn" : "neutral"} />
-            <KpiTile label="Escalate" value={String(summary.escalate)} tone={summary.escalate ? "bad" : "good"} />
+            <AnimatedKpiTile label="Total Orders" value={summary.total} delay={0.00} />
+            <AnimatedKpiTile label="OK" value={summary.ok} tone="good" delay={0.05} />
+            <AnimatedKpiTile label="Watch" value={summary.watch} delay={0.10} />
+            <AnimatedKpiTile label="Nudge" value={summary.nudge} tone={summary.nudge ? "warn" : "neutral"} delay={0.15} />
+            <AnimatedKpiTile label="Escalate" value={summary.escalate} tone={summary.escalate ? "bad" : "good"} delay={0.20} />
           </section>
 
-          <div className="panel-sm text-sm">
-            <span className="text-[0.7rem] uppercase tracking-[0.14em] text-muted font-bold mr-3">Value at risk</span>
-            <span className="text-ink font-bold">{formatMoney(summary.value_at_risk_usd)}</span>
-            <span className="text-muted text-xs ml-3">(across nudge + escalate)</span>
-          </div>
+          <MotionPanel delay={0.2}>
+            <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Donut
+                title="Urgency mix"
+                colorMap={URGENCY_COLOR}
+                data={[
+                  { name: "escalate", value: summary.escalate },
+                  { name: "nudge",    value: summary.nudge },
+                  { name: "watch",    value: summary.watch },
+                  { name: "ok",       value: summary.ok },
+                ].filter((d) => d.value > 0)}
+                centerLabel="orders"
+                centerValue={summary.total}
+                height={240}
+              />
+              <div className="md:col-span-2 flex flex-col gap-3">
+                <AnimatedKpiTile
+                  label="Value at risk (nudge + escalate)"
+                  value={summary.value_at_risk_usd}
+                  prefix="$"
+                  tone={summary.value_at_risk_usd > 1_000_000 ? "bad" : "warn"}
+                  hint={`${summary.nudge + summary.escalate} of ${summary.total} POs`}
+                />
+                <AnimatedKpiTile
+                  label="Total open value"
+                  value={(queue.data?.items || []).reduce((s, i) => s + i.value_usd, 0)}
+                  prefix="$"
+                />
+              </div>
+            </section>
+          </MotionPanel>
 
           <div className="panel-sm flex flex-wrap gap-3 items-end">
             <label className="min-w-[160px] flex flex-col gap-1">
@@ -115,6 +141,11 @@ export default function ExpeditingPage() {
                       <td className="font-mono text-xs">
                         <div className="text-ink font-semibold">{i.po_number}</div>
                         <div className="text-muted text-[0.65rem] uppercase tracking-wider">{i.source}</div>
+                        {i.last_followup_at ? (
+                          <div className="text-[0.65rem] text-accent/80 mt-0.5 normal-case tracking-normal">
+                            {followupLabel(i.last_followup_at)}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="font-semibold text-ink">{i.supplier_name}</td>
                       <td>
@@ -159,7 +190,14 @@ export default function ExpeditingPage() {
       )}
 
       {selected ? (
-        <FollowupModal item={selected} onClose={() => setSelected(null)} />
+        <FollowupModal
+          item={selected}
+          onClose={() => setSelected(null)}
+          onLogged={() => {
+            setSelected(null);
+            queue.reload();
+          }}
+        />
       ) : null}
     </div>
   );
@@ -176,4 +214,13 @@ function SlipBar({ pct }: { pct: number }) {
       <span className="text-xs font-semibold w-10 text-right">{pct}%</span>
     </div>
   );
+}
+
+function followupLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Follow-up logged";
+  const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
+  if (days <= 0) return "Follow-up today";
+  if (days === 1) return "Follow-up yesterday";
+  return `Follow-up ${days}d ago`;
 }

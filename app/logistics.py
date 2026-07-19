@@ -9,6 +9,8 @@ demo events make the tracker non-empty on first boot.
 
 from __future__ import annotations
 
+from ._cache import invalidates_cache
+
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
@@ -76,8 +78,8 @@ def _infer_default_mode(origin_country: Optional[str], destination_country: str 
     return "sea"
 
 
-def _supplier_map() -> Dict[str, SupplierRecord]:
-    return {s.name: s for s in build_demo_request().suppliers}
+def _supplier_map(tenant_id: Optional[str] = None) -> Dict[str, SupplierRecord]:
+    return {s.name: s for s in build_demo_request(tenant_id or "arcforge").suppliers}
 
 
 def _inventory_sku_map() -> Dict[str, object]:
@@ -303,10 +305,14 @@ def _shipment_from_sourcing(po: SourcingPO, suppliers: Dict[str, SupplierRecord]
     )
 
 
-def list_shipments() -> LogisticsQueue:
+from ._cache import ttl_cache
+
+
+@ttl_cache(ttl_seconds=10.0)
+def list_shipments(tenant_id: Optional[str] = None) -> LogisticsQueue:
     _seed_events_if_needed()
-    suppliers = _supplier_map()
-    scenario = build_demo_request()
+    suppliers = _supplier_map(tenant_id=tenant_id)
+    scenario = build_demo_request(tenant_id or "arcforge")
 
     shipments: List[Shipment] = []
     for po in scenario.purchase_orders:
@@ -314,7 +320,7 @@ def list_shipments() -> LogisticsQueue:
             continue
         shipments.append(_shipment_from_scenario(po, suppliers))
 
-    for spo in _list_sourcing_pos():
+    for spo in _list_sourcing_pos(tenant_id=tenant_id):
         if spo.status == "delivered":
             continue
         shipments.append(_shipment_from_sourcing(spo, suppliers))
@@ -354,15 +360,20 @@ def list_shipments() -> LogisticsQueue:
     )
 
 
-def get_shipment(po_ref: str) -> Optional[Shipment]:
-    for s in list_shipments().shipments:
+def get_shipment(po_ref: str, tenant_id: Optional[str] = None) -> Optional[Shipment]:
+    for s in list_shipments(tenant_id=tenant_id).shipments:
         if s.po_ref == po_ref:
             return s
     return None
 
 
-def add_event(po_ref: str, request: AddShipmentEventRequest) -> Optional[ShipmentEvent]:
-    shipment = get_shipment(po_ref)
+@invalidates_cache
+def add_event(
+    po_ref: str,
+    request: AddShipmentEventRequest,
+    tenant_id: Optional[str] = None,
+) -> Optional[ShipmentEvent]:
+    shipment = get_shipment(po_ref, tenant_id=tenant_id)
     if not shipment:
         return None
     event = ShipmentEvent(
@@ -374,14 +385,53 @@ def add_event(po_ref: str, request: AddShipmentEventRequest) -> Optional[Shipmen
         note=request.note,
     )
     _append_event(po_ref, event)
+
+    # Audit trail (enrich with vendor + bom_code from linked PO if available)
+    from .audit import emit
+    from .sourcing import _pos as _sourcing_pos, _prs  # type: ignore[attr-defined]
+    is_delivery = request.stage == "delivered"
+    vendor = shipment.vendor
+    bom_code = None
+    bom_item_id = None
+    project_id = None
+    po = _sourcing_pos.get(po_ref)
+    if po:
+        bom_code = po.code
+        project_id = po.project_id
+        pr_for_po = _prs.get(po.pr_no)
+        if pr_for_po:
+            bom_item_id = pr_for_po.bom_item_id
+    emit(
+        action="delivered" if is_delivery else "stage_advanced",
+        entity_kind="shipment_event",
+        entity_id=event.event_id,
+        subject=f"{po_ref} → {request.stage}",
+        summary=(
+            f"Shipment {po_ref} advanced to {request.stage}"
+            + (f" at {request.location}" if request.location else "")
+            + (f" · {request.note}" if request.note else "")
+        ),
+        source="api",
+        tenant_id=po.tenant_id if po else (tenant_id or ""),
+        project_id=project_id,
+        bom_item_id=bom_item_id,
+        bom_code=bom_code,
+        po_no=po_ref,
+        vendor=vendor,
+        metadata={
+            "stage": request.stage,
+            "location": request.location,
+            "note": request.note,
+        },
+    )
     return event
 
 
 # --- Mode recommender --------------------------------------------------------
 
 
-def recommend_mode(po_ref: str) -> Optional[ModeRecommendation]:
-    shipment = get_shipment(po_ref)
+def recommend_mode(po_ref: str, tenant_id: Optional[str] = None) -> Optional[ModeRecommendation]:
+    shipment = get_shipment(po_ref, tenant_id=tenant_id)
     if not shipment:
         return None
 

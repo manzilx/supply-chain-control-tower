@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "next/link";
+
+import { Donut, MotionPanel, PRIORITY_COLOR } from "@/components/charts";
 import { EmptyState } from "@/components/empty-state";
 import type { KpiSnapshot, WeeklyCategory, WeeklyPlan, WeeklyPlanItem } from "@/lib/types";
 
@@ -24,6 +27,60 @@ const TONE_COLOR: Record<KpiSnapshot["tone"], string> = {
   bad: "text-danger",
   neutral: "text-ink",
 };
+
+const ENTITY_PREFIXES = ["vendor:", "project:", "category:", "RFQ-", "PR-", "SPO-", "PO-"] as const;
+
+function isEntityRef(ref: string): boolean {
+  return ENTITY_PREFIXES.some((prefix) => ref.startsWith(prefix));
+}
+
+function projectIdFromRefs(refs: string[]): string | undefined {
+  const hit = refs.find((ref) => ref.startsWith("project:"));
+  return hit?.split(":", 2)[1];
+}
+
+function refHref(ref: string, refs: string[]): string | null {
+  const projectId = projectIdFromRefs(refs);
+
+  if (ref.startsWith("vendor:")) {
+    return `/vendors/${encodeURIComponent(ref.split(":", 2)[1])}`;
+  }
+  if (ref.startsWith("project:")) {
+    return `/projects/${ref.split(":", 2)[1]}`;
+  }
+  if (ref.startsWith("category:")) {
+    return null;
+  }
+  if (ref.startsWith("RFQ-")) {
+    return `/sourcing/rfqs/${ref}`;
+  }
+  if (ref.startsWith("PR-")) {
+    return `/sourcing/prs/${ref}`;
+  }
+  if (ref.startsWith("SPO-") || ref.startsWith("PO-")) {
+    return "/pos";
+  }
+  if (projectId && !isEntityRef(ref)) {
+    return `/projects/${projectId}/bom`;
+  }
+  return null;
+}
+
+function RefChip({ label, refs }: { label: string; refs: string[] }) {
+  const href = refHref(label, refs);
+  const className =
+    "inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] font-mono bg-white/5 text-muted hover:text-accent hover:bg-white/10 transition-colors";
+
+  if (!href) {
+    return <span className={className}>{label}</span>;
+  }
+
+  return (
+    <Link href={href} className={className}>
+      {label}
+    </Link>
+  );
+}
 
 type Props = {
   plan: WeeklyPlan | null;
@@ -65,6 +122,53 @@ export function WeeklyPlanView({ plan, loading, error, compact = false }: Props)
         </div>
       </section>
 
+      {plan.synthesized_narrative ? (
+        <section className="rounded-2xl border border-accent/30 bg-accent/[0.05] p-5">
+          <div className="flex items-baseline justify-between gap-3 mb-2">
+            <div className="text-[0.65rem] uppercase tracking-[0.14em] text-accent font-bold">
+              AI synthesis
+            </div>
+            <span className="text-[0.6rem] uppercase tracking-[0.14em] text-muted">via grok</span>
+          </div>
+          <div className="text-sm text-ink/90 whitespace-pre-wrap leading-relaxed">
+            {plan.synthesized_narrative}
+          </div>
+        </section>
+      ) : null}
+
+      {!compact && plan.items.length > 0 ? (
+        <MotionPanel delay={0.15}>
+          <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Donut
+              title="Actions by priority"
+              colorMap={PRIORITY_COLOR}
+              data={Object.entries(
+                plan.items.reduce((acc: Record<string, number>, i) => {
+                  acc[i.priority] = (acc[i.priority] || 0) + 1;
+                  return acc;
+                }, {})
+              ).map(([name, value]) => ({ name, value }))}
+              centerLabel="actions"
+              centerValue={plan.items.length}
+              height={240}
+            />
+            <Donut
+              title="Actions by category"
+              data={Object.entries(
+                plan.items.reduce((acc: Record<string, number>, i) => {
+                  const key = CATEGORY_LABEL[i.category] || i.category;
+                  acc[key] = (acc[key] || 0) + 1;
+                  return acc;
+                }, {})
+              ).map(([name, value]) => ({ name, value }))}
+              centerLabel="categories"
+              centerValue={new Set(plan.items.map((i) => i.category)).size}
+              height={240}
+            />
+          </section>
+        </MotionPanel>
+      ) : null}
+
       <section className="space-y-3">
         {items.length === 0 ? (
           <EmptyState title="No actions" hint="Nothing requires attention this week." />
@@ -81,11 +185,27 @@ export function WeeklyPlanView({ plan, loading, error, compact = false }: Props)
                     <span className="text-xs text-muted">· due {item.due_in_days}d</span>
                     <span className="text-xs text-muted">· {item.confidence}% conf</span>
                   </div>
-                  <div className="font-bold text-ink mt-1.5">{item.title}</div>
+                  {item.href ? (
+                    <Link
+                      href={item.href}
+                      className="font-bold text-ink mt-1.5 hover:text-accent hover:underline inline-block"
+                    >
+                      {item.title}
+                    </Link>
+                  ) : (
+                    <div className="font-bold text-ink mt-1.5">{item.title}</div>
+                  )}
                 </div>
-                <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-white/5 text-muted shrink-0">
-                  {item.owner}
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  {item.href && item.primary_action ? (
+                    <Link href={item.href} className="btn btn-secondary text-xs">
+                      {item.primary_action}
+                    </Link>
+                  ) : null}
+                  <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-white/5 text-muted">
+                    {item.owner}
+                  </span>
+                </div>
               </div>
 
               <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
@@ -102,9 +222,7 @@ export function WeeklyPlanView({ plan, loading, error, compact = false }: Props)
               {item.supporting_refs.length > 0 ? (
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {item.supporting_refs.map((r) => (
-                    <span key={r} className="inline-flex items-center rounded-full px-2 py-0.5 text-[0.65rem] font-mono bg-white/5 text-muted">
-                      {r}
-                    </span>
+                    <RefChip key={r} label={r} refs={item.supporting_refs} />
                   ))}
                 </div>
               ) : null}

@@ -29,9 +29,23 @@ const config: Config = {
       },
       boxShadow: {
         panel: "0 28px 60px rgba(2, 6, 12, 0.42)",
+        glow: "0 0 0 1px rgba(87, 212, 192, 0.35), 0 12px 32px rgba(87, 212, 192, 0.15)",
       },
       borderRadius: {
         panel: "20px",
+      },
+      keyframes: {
+        shimmer: {
+          "100%": { transform: "translateX(100%)" },
+        },
+        "fade-up": {
+          "0%": { opacity: "0", transform: "translateY(6px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+      },
+      animation: {
+        shimmer: "shimmer 1.6s infinite",
+        "fade-up": "fade-up 0.4s ease-out both",
       },
     },
   },

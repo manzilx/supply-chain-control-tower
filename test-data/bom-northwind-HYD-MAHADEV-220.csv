@@ -1,0 +1,70 @@
+code,description,category,quantity,uom,unit_cost_usd,supplier_name,spec_doc_id,drawing_id,long_lead_days,planned_need_date,milestone_code
+RUNNER-FRANCIS-A,Francis turbine runner Unit A,Hydro turbines,1,EA,2400000,Andritz Hydro,SPEC-HYD-001,DRG-HYD-RUN,420,2027-03-07,M07
+RUNNER-FRANCIS-B,Francis turbine runner Unit B,Hydro turbines,1,EA,2400000,Andritz Hydro,SPEC-HYD-001,DRG-HYD-RUN,420,2027-04-06,M08
+WICKET-GATE-A,Wicket gate assembly Unit A,Hydro turbines,24,EA,48000,Andritz Hydro,,,240,2027-01-06,M07
+WICKET-GATE-B,Wicket gate assembly Unit B,Hydro turbines,24,EA,48000,Andritz Hydro,,,240,2027-02-05,M07
+SPIRAL-CASE-A,Spiral casing Unit A,Hydro turbines,1,EA,980000,Andritz Hydro,,,300,2027-01-06,M07
+SPIRAL-CASE-B,Spiral casing Unit B,Hydro turbines,1,EA,980000,Andritz Hydro,,,300,2027-02-05,M07
+DRAFT-TUBE-A,Draft tube fabrication Unit A,Hydro turbines,1,EA,320000,Voith Industrial Services,,,240,2027-01-06,M07
+DRAFT-TUBE-B,Draft tube fabrication Unit B,Hydro turbines,1,EA,320000,Voith Industrial Services,,,240,2027-02-05,M07
+GEN-STATOR-A,Generator stator assembly A,Generators,1,EA,1850000,Bharat Heavy Electricals,SPEC-HYD-002,,420,2027-03-17,M08
+GEN-STATOR-B,Generator stator assembly B,Generators,1,EA,1850000,Bharat Heavy Electricals,SPEC-HYD-002,,420,2027-04-16,M08
+GEN-ROTOR-A,Generator rotor + poles A,Generators,1,EA,1450000,Bharat Heavy Electricals,,,420,2027-03-17,M08
+GEN-ROTOR-B,Generator rotor + poles B,Generators,1,EA,1450000,Bharat Heavy Electricals,,,420,2027-04-16,M08
+EXCITER-A,Brushless exciter Unit A,Generators,1,EA,240000,Bharat Heavy Electricals,,,240,2027-03-07,M08
+EXCITER-B,Brushless exciter Unit B,Generators,1,EA,240000,Bharat Heavy Electricals,,,240,2027-04-06,M08
+XFMR-GSU-160,Generator step-up transformer 160 MVA,Electrical,2,EA,1100000,,,,360,2027-03-27,M09
+XFMR-AUX,Auxiliary transformer 5 MVA,Electrical,4,EA,145000,Bharat Heavy Electricals,,,180,2026-11-27,M07
+GIS-220-BAY,220 kV GIS bay,Electrical,6,EA,1450000,,,,320,2027-04-26,M10
+GIS-66-FEEDER,66 kV GIS feeder bay,Electrical,4,EA,380000,,,,240,2027-03-27,M09
+PROT-RELAY-A,Generator protection relay panel,Automation,2,EA,96000,,,,180,2027-03-27,M09
+GOV-DIGITAL-A,Digital governor + hydraulics A,Automation,1,EA,620000,Voith Industrial Services,,,240,2027-03-07,M07
+GOV-DIGITAL-B,Digital governor + hydraulics B,Automation,1,EA,620000,Voith Industrial Services,,,240,2027-04-06,M07
+PENSTOCK-LINER-1,Penstock liner segment 1,Penstock fabrication,6,EA,380000,Voith Industrial Services,SPEC-HYD-003,,300,2026-10-28,M06
+PENSTOCK-LINER-2,Penstock liner segment 2,Penstock fabrication,6,EA,380000,Voith Industrial Services,,,300,2026-11-17,M06
+PENSTOCK-RING,Penstock stiffening ring,Penstock fabrication,24,EA,28000,Voith Industrial Services,,,180,2026-10-28,M06
+EXP-JOINT,Expansion joint bellows,Piping,8,EA,38000,,,,150,2026-11-27,M07
+BUTTERFLY-3M,3 m butterfly intake valve,Forged valves,2,EA,980000,,,,300,2027-01-06,M07
+GATE-RADIAL,Radial gate spillway,Hydro turbines,4,EA,480000,,,,270,2026-11-17,M06
+HOIST-RADIAL,Spillway gate hoist,Crane / lifting,4,EA,220000,,,,240,2026-11-27,M06
+EOT-CRANE-200,EOT crane 200T,Crane / lifting,1,EA,480000,,,,300,2027-01-06,M07
+EOT-CRANE-50-AUX,EOT crane 50T auxiliary,Crane / lifting,2,EA,220000,,,,240,2027-01-06,M07
+COOLING-HEX,Heat exchanger generator cooling,Cooling,4,EA,86000,,,,180,2027-03-07,M08
+OIL-PURIFIER,Oil purification skid,Lubrication,2,EA,64000,,,,150,2027-03-07,M08
+FIRE-CO2-SYS,CO2 fire suppression generator,Fire,4,EA,38000,,,,120,2027-03-17,M08
+HVAC-MACH-HALL,Machine hall HVAC system,HVAC,1,LOT,580000,,,,180,2027-03-27,M09
+DCS-HYDRO,DCS distributed control system,Automation,1,LOT,1850000,,,,240,2027-04-06,M09
+INSTR-VIB,Vibration monitoring system,Instrumentation,12,EA,28000,,,,150,2027-03-17,M08
+INSTR-PT-DAM,Dam piezometer / instrumentation,Instrumentation,240,EA,4800,,,,90,2026-09-28,M06
+STEEL-DAM-FACE,Dam concrete face rebar,Civil,4800,T,720,,,,30,2026-07-30,M04
+CEMENT-MASS-CON,Mass concrete cement,Civil,28000,T,92,,,,15,2026-07-30,M04
+AGGREGATE-CON,Concrete aggregate graded,Civil,68000,T,18,,,,15,2026-07-30,M04
+FORMWORK-DAM,Modular dam formwork,Civil,1800,M2,280,,,,60,2026-09-08,M04
+SHOTCRETE-TUN,Shotcrete for diversion tunnel,Civil,4800,M3,320,,,,30,2026-07-30,M02
+ROCKBOLT-TUN,Tunnel rock bolt + plate,Civil,18000,EA,42,,,,30,2026-07-30,M02
+CABLE-MV-DAM,MV cable installed dam,Cables,18,KM,86000,,,,90,2027-03-07,M08
+CABLE-LV-DAM,LV cable bulk dam,Cables,48,KM,22000,,,,60,2027-03-07,M08
+EARTH-MAT,Generator hall earth mat,Electrical,8400,M,28,,,,60,2027-03-07,M08
+BATTERY-DC,220 V DC battery bank,Electrical,4,EA,28000,,,,120,2027-03-17,M08
+SCADA-COMMS,SCADA RTU + comms,Automation,6,EA,38000,,,,120,2027-04-06,M09
+HV-CB-220,220 kV circuit breaker,Electrical,6,EA,320000,,,,270,2027-04-16,M10
+LA-220,220 kV lightning arrester,Electrical,12,EA,18000,,,,90,2027-04-16,M10
+OVERHEAD-LINE,Overhead transmission stringing,Electrical,18,KM,280000,,,,120,2027-04-26,M10
+FENCING-PERIM,Perimeter security fencing,Civil,8400,M,28,,,,30,2026-07-30,M01
+ROAD-ACCESS-AGG,Access road aggregate,Civil,28000,T,12,,,,15,2026-07-15,M01
+CULVERT-ARMCO,Armco culvert sections,Civil,280,M,480,,,,60,2026-08-29,M01
+SURVEY-EQUIP,Total station + GPS,Tools,6,EA,18000,,,,45,2026-07-30,M01
+CONCRETE-PUMP,Truck-mounted concrete pump,Civil,4,EA,240000,,,,90,2026-08-29,M02
+WELDING-CONSUM,Welding consumables bulk,Tools,8,T,4200,,,,30,2026-07-30,M02
+HYDRAULIC-CYL,Penstock hydraulic cylinder,Hydro turbines,12,EA,28000,Voith Industrial Services,,,150,2027-03-07,M07
+BEARING-THRUST,Generator thrust bearing,Generators,2,EA,145000,Bharat Heavy Electricals,,,240,2027-03-07,M08
+BEARING-GUIDE,Generator guide bearing,Generators,4,EA,86000,Bharat Heavy Electricals,,,240,2027-03-07,M08
+PUMP-DEWATER,Powerhouse dewatering pump,Rotating equipment,4,EA,38000,,,,120,2027-03-07,M08
+PUMP-DRAINAGE,Drainage pump submersible,Rotating equipment,6,EA,18000,,,,90,2027-03-07,M08
+EROSION-MAT,Erosion control geotextile,Civil,4800,M2,22,,,,45,2026-08-14,M03
+RIPRAP-STONE,Riprap stone bedding,Civil,18000,T,28,,,,30,2026-08-14,M03
+REINFORCED-STEEL,Reinforced steel mass concrete,Civil,8400,T,720,,,,45,2026-08-29,M04
+BLAST-MAT,Blasting matting,Civil,240,EA,1800,,,,60,2026-07-30,M02
+TRANS-LINE-TWR,Transmission tower steel,Electrical,48,EA,86000,,,,240,2027-04-16,M10
+INSULATOR-DISC,Disc insulator string,Electrical,480,EA,380,,,,150,2027-04-16,M10
+CONDUCTOR-ACSR,ACSR transmission conductor,Cables,84,KM,28000,,,,180,2027-04-16,M10

@@ -1,9 +1,11 @@
 "use client";
 
+import { CompletionBar } from "@/components/completion-bar";
 import { EmptyState } from "@/components/empty-state";
+import { ExplainButton } from "@/components/explain-button";
 import { PageHeader } from "@/components/page-header";
 import { ProjectTabs } from "@/components/project-tabs";
-import { fetchProject } from "@/lib/api";
+import { fetchProject, fetchProjectProgress } from "@/lib/api";
 import { daysFromNow, formatDate } from "@/lib/format-date";
 import { useAsync } from "@/lib/use-async";
 
@@ -18,6 +20,7 @@ const PHASE_TONE: Record<string, string> = {
 
 export default function ProjectDetailPage({ params }: { params: { id: string } }) {
   const { data, loading, error } = useAsync(() => fetchProject(params.id), [params.id]);
+  const progress = useAsync(() => fetchProjectProgress(params.id), [params.id]);
 
   return (
     <div className="space-y-5">
@@ -33,8 +36,15 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
             eyebrow={data.project_id}
             title={data.name}
             description={`${data.client} · ${data.site} · started ${formatDate(data.start_date)}`}
+            right={<ExplainButton kind="project" id={data.project_id} size="sm" label="Explain project" />}
           />
           <ProjectTabs projectId={data.project_id} />
+
+          {progress.data ? (
+            <section className="panel">
+              <CompletionBar progress={progress.data} showBreakdown />
+            </section>
+          ) : null}
 
           <section className="panel">
             <h2 className="m-0 text-lg font-bold mb-4">Milestones</h2>

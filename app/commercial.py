@@ -35,12 +35,16 @@ def _pct(numerator: float, denom: float) -> float:
     return round(numerator / denom * 100, 1)
 
 
-def build_commercial_lines() -> List[CommercialLine]:
-    prs = list_prs()
+from ._cache import ttl_cache
+
+
+@ttl_cache(ttl_seconds=10.0)
+def build_commercial_lines(tenant_id: Optional[str] = None) -> List[CommercialLine]:
+    prs = list_prs(tenant_id=tenant_id)
     rfqs_by_pr: Dict[str, str] = {p.pr_no: p.rfq_no for p in prs if p.rfq_no}
-    awards_by_pr: Dict[str, str] = {a.pr_no: a.award_id for a in list_awards()}
-    pos_by_pr: Dict[str, float] = {p.pr_no: p.value_usd for p in list_sourcing_pos()}
-    rfqs = {r.rfq_no: r for r in list_rfqs()}
+    awards_by_pr: Dict[str, str] = {a.pr_no: a.award_id for a in list_awards(tenant_id=tenant_id)}
+    pos_by_pr: Dict[str, float] = {p.pr_no: p.value_usd for p in list_sourcing_pos(tenant_id=tenant_id)}
+    rfqs = {r.rfq_no: r for r in list_rfqs(tenant_id=tenant_id)}
 
     lines: List[CommercialLine] = []
     for pr in prs:
@@ -51,12 +55,12 @@ def build_commercial_lines() -> List[CommercialLine]:
 
         rfq_no = rfqs_by_pr.get(pr.pr_no)
         if rfq_no:
-            quotes = get_quotes(rfq_no)
+            quotes = get_quotes(rfq_no, tenant_id=tenant_id)
             if quotes:
                 quoted_min = min(q.total_usd for q in quotes)
 
         if pr.award_id:
-            for award in list_awards():
+            for award in list_awards(tenant_id=tenant_id):
                 if award.award_id == pr.award_id:
                     awarded = award.awarded_value_usd
                     break
@@ -79,6 +83,7 @@ def build_commercial_lines() -> List[CommercialLine]:
         lines.append(
             CommercialLine(
                 ref_id=pr.pr_no,
+                tenant_id=pr.tenant_id,
                 project_id=pr.project_id,
                 code=pr.code,
                 description=pr.description,
@@ -94,7 +99,7 @@ def build_commercial_lines() -> List[CommercialLine]:
         )
 
     # Fill vendor from PO when present
-    po_vendor_by_pr: Dict[str, str] = {p.pr_no: p.vendor for p in list_sourcing_pos()}
+    po_vendor_by_pr: Dict[str, str] = {p.pr_no: p.vendor for p in list_sourcing_pos(tenant_id=tenant_id)}
     for line in lines:
         if line.ref_id in po_vendor_by_pr:
             line.vendor = po_vendor_by_pr[line.ref_id]
@@ -102,9 +107,9 @@ def build_commercial_lines() -> List[CommercialLine]:
     return lines
 
 
-def build_commercial_summary() -> CommercialSummary:
-    lines = build_commercial_lines()
-    projects = {p.project_id: p for p in list_projects()}
+def build_commercial_summary(tenant_id: Optional[str] = None) -> CommercialSummary:
+    lines = build_commercial_lines(tenant_id=tenant_id)
+    projects = {p.project_id: p for p in list_projects(tenant_id=tenant_id)}
 
     by_project: Dict[str, List[CommercialLine]] = defaultdict(list)
     for line in lines:
@@ -163,5 +168,11 @@ def build_commercial_summary() -> CommercialSummary:
     )
 
 
-def get_project_commercials(project_id: str) -> List[CommercialLine]:
-    return [l for l in build_commercial_lines() if l.project_id == project_id]
+def get_project_commercials(
+    project_id: str,
+    tenant_id: Optional[str] = None,
+) -> List[CommercialLine]:
+    return [
+        l for l in build_commercial_lines(tenant_id=tenant_id)
+        if l.project_id == project_id
+    ]

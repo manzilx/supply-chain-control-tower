@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/empty-state";
+import { AnimatedKpiTile, HBar, MotionPanel, CHART_PALETTE } from "@/components/charts";
 import { KpiTile } from "@/components/kpi-tile";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -222,19 +223,58 @@ export default function SimulatePage() {
             </div>
           </div>
 
+          {result.narrative ? (
+            <section className="rounded-2xl border border-accent/30 bg-accent/[0.05] p-5">
+              <div className="flex items-baseline justify-between gap-3 mb-2">
+                <div className="text-[0.65rem] uppercase tracking-[0.14em] text-accent font-bold">
+                  AI executive narrative
+                </div>
+                <span className="text-[0.6rem] uppercase tracking-[0.14em] text-muted">via grok</span>
+              </div>
+              <div className="text-sm text-ink/90 whitespace-pre-wrap leading-relaxed">
+                {result.narrative}
+              </div>
+            </section>
+          ) : null}
+
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <KpiTile
+            <AnimatedKpiTile
               label="Cost Delta"
-              value={formatMoney(result.cost_delta_usd)}
+              value={result.cost_delta_usd}
+              prefix={result.cost_delta_usd >= 0 ? "+$" : "-$"}
+              format={(v) => Math.abs(Math.round(v)).toLocaleString()}
               tone={result.cost_delta_usd > 0 ? "bad" : result.cost_delta_usd < 0 ? "good" : "neutral"}
+              delay={0.0}
             />
-            <KpiTile
+            <AnimatedKpiTile
               label="Schedule Delta"
-              value={`${result.schedule_delta_days}d`}
+              value={result.schedule_delta_days}
+              prefix={result.schedule_delta_days >= 0 ? "+" : ""}
+              suffix=" days"
               tone={result.schedule_delta_days > 0 ? "bad" : "neutral"}
+              delay={0.05}
             />
-            <KpiTile label="Affected Items" value={String(result.affected_items.length)} />
+            <AnimatedKpiTile
+              label="Affected Items"
+              value={result.affected_items.length}
+              delay={0.10}
+            />
           </div>
+
+          {result.milestone_impacts.length > 0 ? (
+            <MotionPanel delay={0.15}>
+              <HBar
+                title="Milestone slip (days)"
+                color={CHART_PALETTE.rose}
+                data={result.milestone_impacts.map((m) => ({
+                  name: `${m.milestone_code} · ${m.milestone_name}`.slice(0, 40),
+                  value: m.slip_days,
+                }))}
+                valueFormat={(v) => `${v}d`}
+                height={Math.max(150, result.milestone_impacts.length * 40)}
+              />
+            </MotionPanel>
+          ) : null}
 
           {result.affected_items.length > 0 ? (
             <section className="panel">

@@ -1,0 +1,38 @@
+# Project Control Tower — reverse proxy
+#
+# HOSTNAME comes from the env (.env.production). If localhost, Caddy uses an
+# internal self-signed cert. Otherwise Caddy auto-issues a Let's Encrypt cert.
+
+{$HOSTNAME} {
+    encode zstd gzip
+
+    # API routes → backend
+    @api path /api/* /healthz /readyz
+    handle @api {
+        reverse_proxy backend:8010 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Everything else → frontend
+    handle {
+        reverse_proxy frontend:3001
+    }
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    log {
+        output stdout
+        format console
+        level INFO
+    }
+}

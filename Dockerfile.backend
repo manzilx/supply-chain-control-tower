@@ -1,0 +1,57 @@
+# Project Control Tower — backend (FastAPI + uvicorn)
+# Multi-stage build: deps in builder, lean runtime image.
+
+# -------- Stage 1: builder --------
+FROM python:3.13-slim AS builder
+
+WORKDIR /build
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# System deps for building wheels (cleared in runtime stage)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt ./
+RUN pip install --user -r requirements.txt
+
+# -------- Stage 2: runtime --------
+FROM python:3.13-slim AS runtime
+
+# Non-root user
+RUN groupadd --gid 1000 app && \
+    useradd  --uid 1000 --gid app --shell /bin/bash --create-home app
+
+# Curl for HEALTHCHECK
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Bring deps from builder
+COPY --from=builder /root/.local /home/app/.local
+ENV PATH=/home/app/.local/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    APP_ENV=prod \
+    STATE_DIR=/data
+
+WORKDIR /app
+
+# App source
+COPY app/        ./app/
+COPY fixtures/   ./fixtures/
+
+# Persistent data directory (bind-mount or named volume in compose)
+RUN mkdir -p /data && chown -R app:app /app /data /home/app
+USER app
+
+EXPOSE 8010
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8010/healthz || exit 1
+
+# Must stay at 1: every domain store is a process-local in-memory dict,
+# so multiple workers diverge silently (a PR created on worker A becomes
+# invisible on worker B). Snapshot-to-disk handles durability; scale-out
+# requires moving state into a shared store first.
+ENV UVICORN_WORKERS=1
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8010 --workers ${UVICORN_WORKERS} --proxy-headers --forwarded-allow-ips=* --log-level info"]

@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
+import { CompletionBar } from "@/components/completion-bar";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
-import { fetchProjects } from "@/lib/api";
+import { SkeletonCard } from "@/components/skeleton";
+import { fetchBom, fetchProject, fetchProjects, fetchProjectsProgress } from "@/lib/api";
 import { daysFromNow, formatDate } from "@/lib/format-date";
 import { useAsync } from "@/lib/use-async";
 import type { Milestone } from "@/lib/types";
@@ -18,8 +21,25 @@ function nextMilestone(ms: Milestone[]): Milestone | null {
   return ms.length ? ms[ms.length - 1] : null;
 }
 
+// Cheap memo so hover-prefetch fires at most once per project per session.
+const _prefetched = new Set<string>();
+
 export default function ProjectsPage() {
   const { data, loading, error } = useAsync(fetchProjects, []);
+  const progress = useAsync(fetchProjectsProgress, []);
+  const progressById = new Map(
+    (progress.data ?? []).map((p) => [p.project_id, p]),
+  );
+  const router = useRouter();
+
+  function prefetch(projectId: string) {
+    if (_prefetched.has(projectId)) return;
+    _prefetched.add(projectId);
+    // Warm Next.js' route cache + warm the API caches in parallel.
+    router.prefetch(`/projects/${encodeURIComponent(projectId)}`);
+    void fetchProject(projectId);
+    void fetchBom(projectId);
+  }
 
   return (
     <div className="space-y-5">
@@ -30,7 +50,12 @@ export default function ProjectsPage() {
       />
 
       {loading ? (
-        <EmptyState title="Loading projects..." />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
       ) : error ? (
         <div className="panel-sm border-[rgba(255,117,117,0.3)] text-[#ff9d9d]">{error}</div>
       ) : !data || data.length === 0 ? (
@@ -44,7 +69,9 @@ export default function ProjectsPage() {
               <Link
                 key={p.project_id}
                 href={`/projects/${encodeURIComponent(p.project_id)}`}
-                className="panel hover:border-accent/50 transition-colors block"
+                onMouseEnter={() => prefetch(p.project_id)}
+                onFocus={() => prefetch(p.project_id)}
+                className="panel hover:border-accent/50 hover:shadow-glow transition-all block animate-fade-up"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -58,6 +85,12 @@ export default function ProjectsPage() {
                   </div>
                   <span className="chip">{p.sector}</span>
                 </div>
+
+                {progressById.has(p.project_id) ? (
+                  <div className="mt-4">
+                    <CompletionBar progress={progressById.get(p.project_id)!} />
+                  </div>
+                ) : null}
 
                 <div className="grid grid-cols-3 gap-3 mt-5">
                   <Stat label="Milestones" value={String(p.milestones.length)} />

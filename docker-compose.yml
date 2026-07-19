@@ -1,0 +1,89 @@
+# Project Control Tower — production stack
+#
+# Three services: backend, frontend, caddy (reverse proxy + auto-TLS).
+# State persists in the `state` named volume (snapshot every 120s by default).
+#
+# Quick start:
+#   1) cp .env.production.example .env.production
+#   2) edit .env.production (set HOSTNAME, JWT_SECRET, XAI_API_KEY, etc.)
+#   3) docker compose --env-file .env.production up -d --build
+#
+# Caddy auto-issues Let's Encrypt certs for the HOSTNAME you set. For localhost
+# testing, set HOSTNAME=localhost and Caddy will use a self-signed cert.
+
+services:
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: prod
+      JWT_SECRET: ${JWT_SECRET}
+      STATE_DIR: /data
+      SNAPSHOT_INTERVAL_SECONDS: ${SNAPSHOT_INTERVAL_SECONDS:-120}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      ALLOWED_ORIGIN_REGEX: ${ALLOWED_ORIGIN_REGEX:-}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-1}  # must stay 1; in-memory state per process
+      # AI
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      XAI_MODEL: ${XAI_MODEL:-grok-4-1-fast-reasoning}
+      XAI_BASE_URL: ${XAI_BASE_URL:-https://api.x.ai/v1}
+      XAI_REASONING_EFFORT: ${XAI_REASONING_EFFORT:-}
+      # SAP CPI
+      SAP_CPI_MODE: ${SAP_CPI_MODE:-mock}
+      SAP_CPI_BASE_URL: ${SAP_CPI_BASE_URL:-}
+      SAP_CPI_TOKEN_URL: ${SAP_CPI_TOKEN_URL:-}
+      SAP_CPI_CLIENT_ID: ${SAP_CPI_CLIENT_ID:-}
+      SAP_CPI_CLIENT_SECRET: ${SAP_CPI_CLIENT_SECRET:-}
+    volumes:
+      - state:/data
+    expose:
+      - "8010"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8010/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        # In compose, Caddy proxies /api to the backend on the same origin —
+        # so the frontend can talk to /api as a relative URL.
+        NEXT_PUBLIC_API_BASE: ""
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+    expose:
+      - "3001"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      HOSTNAME: ${HOSTNAME:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  state:           # backend state directory (/data inside the backend)
+  caddy_data:      # Let's Encrypt certs
+  caddy_config:    # Caddy runtime

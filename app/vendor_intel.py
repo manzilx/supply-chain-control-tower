@@ -208,8 +208,20 @@ def _composite(components: List[ScorecardComponent]) -> int:
 # --- Public helpers ----------------------------------------------------------
 
 
-def _suppliers() -> List[SupplierRecord]:
-    return list(build_demo_request().suppliers)
+def _suppliers(tenant_id: Optional[str] = None) -> List[SupplierRecord]:
+    """Static demo suppliers + any user-added runtime suppliers for the tenant.
+
+    Runtime suppliers override static ones with the same name (case-insensitive).
+    """
+    from .vendor_store import list_runtime
+    static = list(build_demo_request(tenant_id or "arcforge").suppliers)
+    runtime = list_runtime(tenant_id)
+    if not runtime:
+        return static
+    runtime_names = {s.name.strip().lower() for s in runtime}
+    merged = [s for s in static if s.name.strip().lower() not in runtime_names]
+    merged.extend(runtime)
+    return merged
 
 
 def _category_spend_map(suppliers: List[SupplierRecord]) -> Dict[str, float]:
@@ -266,8 +278,8 @@ def _alternates_for(
     return alternates
 
 
-def _find_supplier(name: str) -> Optional[SupplierRecord]:
-    for s in _suppliers():
+def _find_supplier(name: str, tenant_id: Optional[str] = None) -> Optional[SupplierRecord]:
+    for s in _suppliers(tenant_id=tenant_id):
         if s.name == name:
             return s
     return None
@@ -276,8 +288,12 @@ def _find_supplier(name: str) -> Optional[SupplierRecord]:
 # --- Public API --------------------------------------------------------------
 
 
-def list_vendor_summaries() -> List[VendorSummary]:
-    suppliers = _suppliers()
+from ._cache import ttl_cache
+
+
+@ttl_cache(ttl_seconds=15.0)
+def list_vendor_summaries(tenant_id: Optional[str] = None) -> List[VendorSummary]:
+    suppliers = _suppliers(tenant_id=tenant_id)
     spend_by_category = _category_spend_map(suppliers)
     summaries: List[VendorSummary] = []
     for s in suppliers:
@@ -301,11 +317,14 @@ def list_vendor_summaries() -> List[VendorSummary]:
     return summaries
 
 
-def get_vendor_scorecard(name: str) -> Optional[VendorScorecard]:
-    supplier = _find_supplier(name)
+def get_vendor_scorecard(
+    name: str,
+    tenant_id: Optional[str] = None,
+) -> Optional[VendorScorecard]:
+    supplier = _find_supplier(name, tenant_id=tenant_id)
     if not supplier:
         return None
-    suppliers = _suppliers()
+    suppliers = _suppliers(tenant_id=tenant_id)
     spend_by_category = _category_spend_map(suppliers)
     components = _build_components(supplier, spend_by_category)
     score = _composite(components)
@@ -331,8 +350,8 @@ def get_vendor_scorecard(name: str) -> Optional[VendorScorecard]:
     )
 
 
-def list_category_concentration() -> List[CategoryConcentration]:
-    suppliers = _suppliers()
+def list_category_concentration(tenant_id: Optional[str] = None) -> List[CategoryConcentration]:
+    suppliers = _suppliers(tenant_id=tenant_id)
     by_cat: Dict[str, List[SupplierRecord]] = defaultdict(list)
     for s in suppliers:
         by_cat[s.category].append(s)
@@ -354,3 +373,125 @@ def list_category_concentration() -> List[CategoryConcentration]:
         )
     out.sort(key=lambda c: c.total_spend_usd, reverse=True)
     return out
+
+
+def build_vendor_briefing(name: str, tenant_id: Optional[str] = None):
+    """Generate a risk briefing for a single vendor.
+
+    Tries Grok (source='grok'); falls back to deterministic summary
+    (source='deterministic'). Returns None if the vendor isn't known.
+    """
+
+    from datetime import datetime as _dt, timezone as _tz
+    from .schemas import VendorBriefing
+    from .llm import grok_json, is_enabled
+
+    scorecard = get_vendor_scorecard(name, tenant_id=tenant_id)
+    if not scorecard:
+        return None
+
+    request = build_demo_request(tenant_id or "arcforge")
+    open_pos = [
+        {
+            "po": p.po_number,
+            "sku": p.sku,
+            "due_in_days": p.due_in_days,
+            "status": p.status,
+            "value_usd": p.value_usd,
+        }
+        for p in request.purchase_orders
+        if p.supplier_name == name and p.status != "received"
+    ]
+    incidents = [
+        {"title": i.title, "severity": i.severity, "days_open": i.days_open}
+        for i in request.incidents
+        if i.supplier_name == name
+    ]
+
+    if is_enabled():
+        import json as _json
+        context = {
+            "vendor": scorecard.vendor,
+            "category": scorecard.category,
+            "country": scorecard.country,
+            "composite_score": scorecard.composite_score,
+            "composite_grade": scorecard.composite_grade,
+            "annual_spend_usd": scorecard.annual_spend_usd,
+            "lead_time_days": scorecard.lead_time_days,
+            "flags": scorecard.flags,
+            "single_source_exposure": scorecard.single_source_exposure,
+            "concentration_pct": scorecard.concentration_pct,
+            "approved_alternatives": scorecard.approved_alternatives,
+            "alternates": [{"name": a.name, "score": a.composite_score} for a in scorecard.alternates],
+            "components": [{"dim": c.dimension, "score": c.score, "note": c.note} for c in scorecard.components],
+            "open_pos": open_pos,
+            "incidents": incidents,
+        }
+        system = (
+            "You are a strategic-sourcing analyst writing a 200-word risk briefing "
+            "for a single vendor. Be concrete: cite scorecard numbers, flag exposure, "
+            "any recent incidents or open POs of concern. End with a watchlist of "
+            "3-5 specific items to monitor.\n\n"
+            "Return JSON: {\"headline\": <=14-word string, "
+            "\"body\": 2-3 short paragraph plain prose string, "
+            "\"watchlist\": list of 3-5 short strings}"
+        )
+        user = (
+            "Write the briefing using only this data:\n\n"
+            + _json.dumps(context, default=str, indent=2)
+        )
+        parsed = grok_json(system, user, max_tokens=700)
+        if parsed and isinstance(parsed.get("headline"), str) and isinstance(parsed.get("body"), str):
+            watchlist = parsed.get("watchlist") or []
+            if not isinstance(watchlist, list):
+                watchlist = []
+            return VendorBriefing(
+                vendor=scorecard.vendor,
+                headline=parsed["headline"][:140],
+                body=parsed["body"],
+                watchlist=[str(w) for w in watchlist][:6],
+                generated_at=_dt.now(_tz.utc),
+                source="grok",
+            )
+
+    # Deterministic fallback
+    parts = [
+        f"{scorecard.vendor} runs at composite score {scorecard.composite_score}/100 "
+        f"(grade {scorecard.composite_grade}) on USD {scorecard.annual_spend_usd:,.0f} "
+        f"annual spend across the {scorecard.category} category."
+    ]
+    if scorecard.single_source_exposure:
+        parts.append(
+            f"This vendor is the sole approved source for {scorecard.category} with "
+            f"{scorecard.concentration_pct:.0f}% category concentration — a real continuity risk."
+        )
+    if scorecard.flags:
+        parts.append("Active risk flags: " + ", ".join(scorecard.flags) + ".")
+    if incidents:
+        parts.append(f"{len(incidents)} open incident(s) on file.")
+    if open_pos:
+        parts.append(
+            f"{len(open_pos)} open PO(s) totaling USD {sum(p['value_usd'] for p in open_pos):,.0f}."
+        )
+
+    watchlist: List[str] = []
+    if scorecard.flags:
+        watchlist.extend(f"Track flag: {f}" for f in scorecard.flags[:3])
+    if scorecard.single_source_exposure:
+        watchlist.append("Identify and qualify a second source for this category")
+    if any(p["due_in_days"] <= 14 for p in open_pos):
+        watchlist.append("Tighten expediting on POs due within 14 days")
+    if not watchlist:
+        watchlist = ["Quarterly performance review", "Annual capacity confirmation"]
+
+    return VendorBriefing(
+        vendor=scorecard.vendor,
+        headline=(
+            f"{scorecard.vendor} — grade {scorecard.composite_grade}, "
+            f"{'single-source' if scorecard.single_source_exposure else 'multi-source'}"
+        ),
+        body="\n\n".join(parts),
+        watchlist=watchlist[:6],
+        generated_at=_dt.now(_tz.utc),
+        source="deterministic",
+    )

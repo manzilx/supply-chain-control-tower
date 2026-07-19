@@ -1,0 +1,39 @@
+code,description,category,quantity,uom,unit_cost_usd,supplier_name,spec_doc_id,drawing_id,long_lead_days,planned_need_date,milestone_code
+BFP-660-B,Boiler feed pump set B,Rotating equipment,2,EA,920000,Helios Cast & Forge,SPEC-RB-001,DRG-RB-001,240,2026-11-27,M3
+DEAERATOR-660,Deaerator + storage tank,Process,1,EA,380000,Kerala Forge Works,SPEC-RB-001,,180,2026-10-28,M3
+CONDENSER-AC,Air-cooled condenser bank,Process,8,EA,220000,,,,270,2026-12-17,M4
+HRSG-MODULE,HRSG pressure module,Heat recovery,4,EA,1100000,Helios Cast & Forge,SPEC-RB-001,,300,2026-12-27,M3
+ECONOMIZER-COIL,Economizer coil bundle,Heat recovery,4,EA,180000,Helios Cast & Forge,,,210,2026-10-28,M3
+DESH-PIPING-CR,Desuperheater piping chrome-moly,Piping,320,M,1200,Copperline Metals,,,90,2026-09-28,M3
+VALVE-24-A105,24-inch forged gate valve,Forged valves,12,EA,6800,Kerala Forge Works,SPEC-RB-002,,120,2026-09-08,M3
+RELIEF-VALVE,Steam relief valve assembly,Forged valves,24,EA,2400,Kerala Forge Works,,,90,2026-09-18,M3
+ACTUATOR-PNEU,Pneumatic valve actuator,Automation,36,EA,1800,Mitsuba Automation,,,75,2026-08-24,M2
+SOOT-BLOWER,Wall-tube soot blower set,Process,16,EA,14000,,,,150,2026-11-27,M3
+HV-SWITCHGEAR-11,11 kV switchgear panel,Electrical,6,EA,95000,BluePeak Controls,SPEC-RB-001,,180,2026-11-07,M3
+CT-MV-630,MV current transformer 630A,Electrical,24,EA,4200,BluePeak Controls,,,90,2026-09-18,M3
+MOTOR-IM-3300,3.3 kV induction motor 4 MW,Rotating equipment,6,EA,165000,Helios Cast & Forge,,,180,2026-10-28,M3
+PLC-S7-CPU,PLC CPU module 1500 series,Automation,8,EA,8400,BluePeak Controls,,,60,2026-08-19,M2
+CABLE-MV-XLPE,33 kV XLPE single-core cable,Cables,18,KM,92000,Copperline Metals,,,75,2026-09-18,M3
+CABLE-CONTROL,Multipair instrumentation cable,Cables,42,KM,6800,Copperline Metals,,,60,2026-09-08,M3
+CONDUIT-GAL,Hot-dip galvanized conduit,Electrical,8400,M,22,Delhi Metals Co,,,30,2026-07-30,M2
+RACEWAY-CABLE,Cable raceway galvanized,Electrical,2200,M,86,Delhi Metals Co,,,30,2026-07-30,M2
+INSTR-PRES,Pressure transmitter HART,Instrumentation,240,EA,1100,Mitsuba Automation,,,75,2026-08-19,M2
+INSTR-TEMP-RTD,RTD temperature sensor,Instrumentation,380,EA,240,Mitsuba Automation,,,60,2026-08-14,M2
+INSTR-FLOW-VTX,Vortex flow meter,Instrumentation,64,EA,4800,Mitsuba Automation,,,75,2026-08-24,M2
+BALL-VALVE-2,"2""-150 ball valve carbon",Forged valves,480,EA,320,Kerala Forge Works,,,60,2026-08-29,M2
+PSV-150-HF,Pilot-operated PSV,Forged valves,36,EA,4800,,,,120,2026-09-28,M3
+UPS-CRITICAL,100 kVA critical load UPS,Electrical,4,EA,78000,BluePeak Controls,,,90,2026-09-18,M3
+BATTERY-VRLA,VRLA battery bank 220V,Electrical,6,EA,14000,BluePeak Controls,,,60,2026-08-29,M3
+FIRE-DELUGE,Deluge valve fire-water,Fire,18,EA,6200,,,,90,2026-09-28,M3
+FIRE-CO2-CYL,CO2 cylinder bank,Fire,24,EA,980,,,,45,2026-08-29,M3
+PIPING-CS-A106,A106-B carbon steel pipe,Piping,1800,M,320,Copperline Metals,,,75,2026-09-18,M3
+PIPING-SS-316,SS316L stainless pipe,Piping,420,M,980,Copperline Metals,,,90,2026-09-18,M3
+CRANE-EOT-50,EOT crane 50T,Crane / lifting,2,EA,285000,,,,240,2026-12-17,M4
+HVAC-AHU-30K,"AHU 30,000 CFM",HVAC,6,EA,64000,,,,120,2026-10-28,M4
+CW-PUMP-VS,Cooling water vertical pump,Cooling,4,EA,240000,Helios Cast & Forge,,,180,2026-10-28,M3
+OIL-LUBE-SKID,Lube oil skid 200 GPM,Lubrication,2,EA,96000,,,,150,2026-11-07,M3
+STRUCT-BEAM,Structural beam W-section,Structural,580,T,1850,,,,60,2026-08-29,M3
+REBAR-BUNDLE,Rebar #8 bundle,Civil,1200,T,720,,,,30,2026-07-30,M2
+EARTH-CABLE-CU,Copper earthing cable,Electrical,6800,M,28,Copperline Metals,,,45,2026-08-29,M2
+LIGHTING-FIX-LED,LED industrial light fixture,Electrical,480,EA,280,Delhi Metals Co,,,30,2026-07-30,M2
+PORTABLE-WELDER,300A portable welding set,Tools,14,EA,4800,,,,60,2026-08-19,M2

@@ -54,9 +54,17 @@ def _build_prompt(payload: AgentRequest, risks: List[RiskRecord]) -> str:
 
 
 def generate_ai_brief(payload: AgentRequest, risks: List[RiskRecord]) -> str:
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
-    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    """Generate the executive prose brief for /api/analyze via Grok.
+
+    Uses the OpenAI-compatible chat-completions endpoint that xAI exposes.
+    Falls back to a deterministic templated response if the key is missing
+    or the call fails.
+    """
+
+    api_key = os.getenv("XAI_API_KEY", "").strip()
+    model = os.getenv("XAI_MODEL", "grok-4-1-fast-reasoning").strip()
+    base_url = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1").rstrip("/")
+    reasoning_effort = os.getenv("XAI_REASONING_EFFORT", "").strip()
 
     if not api_key:
         return _fallback_response(payload, risks)
@@ -69,6 +77,8 @@ def generate_ai_brief(payload: AgentRequest, risks: List[RiskRecord]) -> str:
         ],
         "temperature": 0.3,
     }
+    if reasoning_effort:
+        body["reasoning_effort"] = reasoning_effort
 
     req = request.Request(
         url=f"{base_url}/chat/completions",
@@ -80,7 +90,7 @@ def generate_ai_brief(payload: AgentRequest, risks: List[RiskRecord]) -> str:
         method="POST",
     )
     try:
-        with request.urlopen(req, timeout=20) as response:
+        with request.urlopen(req, timeout=30) as response:
             parsed = json.loads(response.read().decode("utf-8"))
         return (
             parsed.get("choices", [{}])[0]
@@ -89,5 +99,5 @@ def generate_ai_brief(payload: AgentRequest, risks: List[RiskRecord]) -> str:
             .strip()
             or _fallback_response(payload, risks)
         )
-    except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError):
+    except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError, KeyError, ValueError):
         return _fallback_response(payload, risks)

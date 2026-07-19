@@ -7,16 +7,20 @@ import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { PRStatusBadge, StrategyPill } from "@/components/sourcing-badges";
+import { SubmitToSapButton } from "@/components/sap-status";
+import { EntityTrail, TraceabilityLadder } from "@/components/traceability";
 import {
   fetchPr,
   fetchSuggestedVendors,
   issueRfq,
 } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { formatDate, formatMoney } from "@/lib/format-date";
 import { useAsync } from "@/lib/use-async";
 
 export default function PRPage({ params }: { params: { pr_no: string } }) {
   const router = useRouter();
+  const { hasPerm } = useAuth();
   const pr = useAsync(() => fetchPr(params.pr_no), [params.pr_no]);
   const suggestions = useAsync(() => fetchSuggestedVendors(params.pr_no), [params.pr_no]);
 
@@ -80,7 +84,18 @@ export default function PRPage({ params }: { params: { pr_no: string } }) {
         eyebrow="PR"
         title={`${data.pr_no} · ${data.code}`}
         description={data.description}
-        right={<PRStatusBadge status={data.status} />}
+        right={
+          <div className="flex items-center gap-3">
+            <PRStatusBadge status={data.status} />
+            <SubmitToSapButton
+              kind="pr"
+              refNo={data.pr_no}
+              currentStatus={data.sap_status ?? "draft"}
+              sapDocNo={data.sap_pr_no}
+              onResult={() => pr.reload()}
+            />
+          </div>
+        }
       />
 
       <section className="panel grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -124,7 +139,7 @@ export default function PRPage({ params }: { params: { pr_no: string } }) {
         </section>
       ) : null}
 
-      {data.status === "draft" ? (
+      {data.status === "draft" && hasPerm("rfq", "create") ? (
         <section className="panel space-y-4">
           <div>
             <h2 className="m-0 text-lg font-bold">Issue RFQ</h2>
@@ -210,6 +225,9 @@ export default function PRPage({ params }: { params: { pr_no: string } }) {
           </div>
         </section>
       ) : null}
+
+      <TraceabilityLadder kind="pr" id={data.pr_no} />
+      <EntityTrail kind="pr" id={data.pr_no} />
     </div>
   );
 }

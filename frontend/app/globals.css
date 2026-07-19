@@ -209,3 +209,13 @@ table.data-table tr:hover td {
   font-size: 0.78rem;
   font-weight: 700;
 }
+
+@keyframes slide-in {
+  from { transform: translateX(100%); opacity: 0.4; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); opacity: 0.4; }
+  to   { transform: translateX(0); opacity: 1; }
+}

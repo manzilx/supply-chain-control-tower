@@ -3,12 +3,14 @@
 import Link from "next/link";
 
 import { ActionCard } from "@/components/action-card";
+import { AnimatedKpiTile, Donut, Gauge, MotionPanel, SEVERITY_COLOR } from "@/components/charts";
 import { EmptyState } from "@/components/empty-state";
-import { KpiTile } from "@/components/kpi-tile";
 import { PageHeader } from "@/components/page-header";
+import { PortfolioDashboard } from "@/components/portfolio-dashboard";
 import { RiskCard } from "@/components/risk-card";
 import { WeeklyPlanView } from "@/components/weekly-plan-view";
 import { fetchWeeklyPlan } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { useStore } from "@/lib/store-context";
 import { useAsync } from "@/lib/use-async";
 import type { WatchMetric } from "@/lib/types";
@@ -23,53 +25,162 @@ function toneFor(metric: WatchMetric): "neutral" | "good" | "warn" | "bad" {
 }
 
 export default function OverviewPage() {
-  const { scenario, analysis, status } = useStore();
+  const { tenant } = useAuth();
+  const { analysis } = useStore();
   const plan = useAsync(fetchWeeklyPlan, []);
 
-  const metrics = analysis?.watch_metrics ?? [];
   const topRisks = (analysis?.top_risks ?? []).slice(0, 5);
   const topActions = (analysis?.recommended_actions ?? []).slice(0, 5);
-
-  const counts = {
-    suppliers: scenario?.suppliers.length ?? 0,
-    inventory: scenario?.inventory.length ?? 0,
-    pos: scenario?.purchase_orders.length ?? 0,
-    incidents: scenario?.incidents.length ?? 0,
-  };
+  const metrics = analysis?.watch_metrics ?? [];
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Overview"
-        title={scenario ? `${scenario.company.company_name} · Daily Brief` : "Control Tower"}
-        description={
-          analysis?.executive_summary ??
-          (status === "loading"
-            ? "Loading demo scenario..."
-            : "Load the demo scenario or edit the inputs to generate a brief.")
-        }
+        title={tenant?.name ? `${tenant.name} · Control Tower` : "Control Tower"}
+        description="Real-time portfolio cockpit. Press ⌘K to jump to any project, BOM line, vendor, PR or PO."
       />
 
-      {metrics.length > 0 ? (
-        <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {metrics.map((m) => (
-            <KpiTile
-              key={m.label}
-              label={m.label}
-              value={m.value}
-              tone={toneFor(m)}
-              hint={m.direction === "up" ? "trending up" : m.direction === "down" ? "trending down" : "steady"}
+      <PortfolioDashboard />
+
+      {analysis ? (
+        <>
+          <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Gauge
+              title="Overall Risk"
+              subtitle="Composite of top 20 risks"
+              value={analysis.overall_risk_score ?? 0}
+              tone={
+                (analysis.overall_risk_score ?? 0) >= 80 ? "bad" :
+                (analysis.overall_risk_score ?? 0) >= 60 ? "warn" :
+                (analysis.overall_risk_score ?? 0) >= 30 ? "neutral" : "good"
+              }
+              height={220}
             />
-          ))}
-        </section>
-      ) : (
-        <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <KpiTile label="Suppliers" value={String(counts.suppliers)} />
-          <KpiTile label="SKUs Tracked" value={String(counts.inventory)} />
-          <KpiTile label="Open POs" value={String(counts.pos)} />
-          <KpiTile label="Open Incidents" value={String(counts.incidents)} tone={counts.incidents ? "warn" : "neutral"} />
-        </section>
-      )}
+            <MotionPanel delay={0.1} className="md:col-span-2">
+              {metrics.length > 0 ? (
+                <div className="grid grid-cols-2 gap-3 h-full">
+                  {metrics.slice(0, 4).map((m, i) => {
+                    const numeric = Number(String(m.value).replace(/[^0-9.\-]/g, "")) || 0;
+                    const suffix = String(m.value).replace(/[0-9.\-,]/g, "").trim();
+                    const spark = Array.from({ length: 8 }, (_, k) => numeric * (0.7 + Math.sin(k + i) * 0.15 + k * 0.04));
+                    return (
+                      <AnimatedKpiTile
+                        key={m.label}
+                        label={m.label}
+                        value={numeric || 0}
+                        suffix={suffix ? " " + suffix : ""}
+                        tone={toneFor(m)}
+                        hint={m.direction === "up" ? "trending up" : m.direction === "down" ? "trending down" : "steady"}
+                        delay={0.15 + i * 0.05}
+                        spark={spark}
+                      />
+                    );
+                  })}
+                </div>
+              ) : null}
+            </MotionPanel>
+          </section>
+
+          {(analysis.top_risks?.length ?? 0) > 0 ? (
+            <MotionPanel delay={0.25}>
+              <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Donut
+                  title="Risks by type"
+                  data={Object.entries(
+                    analysis.top_risks.reduce((acc: Record<string, number>, r) => {
+                      acc[r.risk_type] = (acc[r.risk_type] || 0) + 1;
+                      return acc;
+                    }, {})
+                  ).map(([name, value]) => ({ name: name.replace(/_/g, " "), value }))}
+                  centerLabel="risks"
+                  centerValue={analysis.top_risks.length}
+                  height={220}
+                />
+                <Donut
+                  title="Risks by severity"
+                  colorMap={SEVERITY_COLOR}
+                  data={Object.entries(
+                    analysis.top_risks.reduce((acc: Record<string, number>, r) => {
+                      acc[r.severity] = (acc[r.severity] || 0) + 1;
+                      return acc;
+                    }, {})
+                  ).map(([name, value]) => ({ name, value }))}
+                  centerLabel="critical+"
+                  centerValue={analysis.top_risks.filter((r) => r.severity === "critical").length}
+                  height={220}
+                />
+                <Donut
+                  title="Actions by priority"
+                  colorMap={{ P1: "#ff7a9a", P2: "#f0b44c", P3: "#7dc4ff" }}
+                  data={Object.entries(
+                    (analysis.recommended_actions ?? []).reduce((acc: Record<string, number>, a) => {
+                      acc[a.priority] = (acc[a.priority] || 0) + 1;
+                      return acc;
+                    }, {})
+                  ).map(([name, value]) => ({ name, value }))}
+                  centerLabel="actions"
+                  centerValue={(analysis.recommended_actions ?? []).length}
+                  height={220}
+                />
+              </section>
+            </MotionPanel>
+          ) : null}
+
+          <section className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <div className="panel space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold m-0">Top Risks</h2>
+                <Link href="/risks" className="text-xs text-accent font-semibold uppercase tracking-wider hover:underline">
+                  View all →
+                </Link>
+              </div>
+              {topRisks.length ? (
+                <div className="space-y-3">
+                  {topRisks.map((r) => (
+                    <RiskCard key={`${r.title}-${r.score}`} risk={r} />
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  title="No risks yet"
+                  hint="Run an analysis to surface risks from the current scenario."
+                />
+              )}
+            </div>
+
+            <div className="panel space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold m-0">Top Actions</h2>
+                <Link href="/risks" className="text-xs text-accent font-semibold uppercase tracking-wider hover:underline">
+                  View all →
+                </Link>
+              </div>
+              {topActions.length ? (
+                <div className="space-y-3">
+                  {topActions.map((a) => (
+                    <ActionCard key={`${a.title}-${a.owner}`} action={a} />
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  title="No actions yet"
+                  hint="Actions are generated from the top risks after analysis."
+                />
+              )}
+            </div>
+          </section>
+
+          {analysis.ai_assistant_response ? (
+            <section className="panel">
+              <div className="section-title mb-2">AI Brief</div>
+              <pre className="whitespace-pre-wrap font-sans leading-relaxed text-sm text-ink/90 m-0">
+                {analysis.ai_assistant_response}
+              </pre>
+            </section>
+          ) : null}
+        </>
+      ) : null}
 
       <section>
         <div className="flex items-baseline justify-between mb-3">
@@ -80,59 +191,6 @@ export default function OverviewPage() {
         </div>
         <WeeklyPlanView plan={plan.data} loading={plan.loading} error={plan.error} compact />
       </section>
-
-      <section className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <div className="panel space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold m-0">Top Risks</h2>
-            <Link href="/risks" className="text-xs text-accent font-semibold uppercase tracking-wider hover:underline">
-              View all →
-            </Link>
-          </div>
-          {topRisks.length ? (
-            <div className="space-y-3">
-              {topRisks.map((r) => (
-                <RiskCard key={`${r.title}-${r.score}`} risk={r} />
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              title="No risks yet"
-              hint="Run an analysis to surface risks from the current scenario."
-            />
-          )}
-        </div>
-
-        <div className="panel space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold m-0">Top Actions</h2>
-            <Link href="/actions" className="text-xs text-accent font-semibold uppercase tracking-wider hover:underline">
-              View all →
-            </Link>
-          </div>
-          {topActions.length ? (
-            <div className="space-y-3">
-              {topActions.map((a) => (
-                <ActionCard key={`${a.title}-${a.owner}`} action={a} />
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              title="No actions yet"
-              hint="Actions are generated from the top risks after analysis."
-            />
-          )}
-        </div>
-      </section>
-
-      {analysis?.ai_assistant_response ? (
-        <section className="panel">
-          <div className="section-title mb-2">AI Brief</div>
-          <pre className="whitespace-pre-wrap font-sans leading-relaxed text-sm text-ink/90 m-0">
-            {analysis.ai_assistant_response}
-          </pre>
-        </section>
-      ) : null}
     </div>
   );
 }

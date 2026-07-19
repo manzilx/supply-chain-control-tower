@@ -7,8 +7,11 @@ invocation so the UI can show transparency into what was done.
 
 from __future__ import annotations
 
+import contextvars
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
+
+from .schemas import User, SupplierRecord
 
 from .analytics import analyze_supply_chain
 from .commercial import build_commercial_summary
@@ -19,6 +22,7 @@ from .sample_data import build_demo_request
 from .schemas import (
     DraftFollowupRequest,
     EmailTone,
+    GatedVendorReply,
     SimulationRequest,
     SimulationScenario,
     ToolCallRecord,
@@ -31,6 +35,29 @@ from .vendor_intel import (
     list_vendor_summaries,
 )
 from .weekly_plan import build_weekly_plan
+
+
+# --- Request-scoped acting user (set by /api/chat handlers) -----------------
+
+_tool_user: contextvars.ContextVar[Optional[User]] = contextvars.ContextVar("tool_user", default=None)
+
+
+def set_tool_user(user: Optional[User]) -> contextvars.Token[Optional[User]]:
+    return _tool_user.set(user)
+
+
+def get_tool_user() -> Optional[User]:
+    return _tool_user.get()
+
+
+def _tenant_id() -> Optional[str]:
+    """Tenant for the acting chat user, or None when no request context."""
+    user = get_tool_user()
+    return user.tenant_id if user else None
+
+
+def reset_tool_user(token: contextvars.Token[Optional[User]]) -> None:
+    _tool_user.reset(token)
 
 
 @dataclass
@@ -66,7 +93,7 @@ def _record(tool: Tool, args: dict, result: Any) -> ToolCallRecord:
 
 
 def _tool_weekly_plan(_: dict) -> Any:
-    return build_weekly_plan()
+    return build_weekly_plan(tenant_id=_tenant_id())
 
 
 def _summarize_weekly_plan(plan: Any) -> str:
@@ -75,7 +102,8 @@ def _summarize_weekly_plan(plan: Any) -> str:
 
 
 def _tool_top_risks(_: dict) -> Any:
-    scenario = build_demo_request()
+    tid = _tenant_id() or "arcforge"
+    scenario = build_demo_request(tid)
     return analyze_supply_chain(scenario, ai_response="").top_risks
 
 
@@ -87,7 +115,7 @@ def _summarize_risks(risks: List[Any]) -> str:
 
 
 def _tool_expedite_queue(_: dict) -> Any:
-    return build_expedite_queue()
+    return build_expedite_queue(tenant_id=_tenant_id())
 
 
 def _summarize_expedite(q: Any) -> str:
@@ -98,7 +126,7 @@ def _summarize_expedite(q: Any) -> str:
 
 
 def _tool_predict_slip(args: dict) -> Any:
-    return get_expedite_item(args.get("po_number", ""))
+    return get_expedite_item(args.get("po_number", ""), tenant_id=_tenant_id())
 
 
 def _summarize_slip(item: Any) -> str:
@@ -116,7 +144,7 @@ def _tool_draft_followup(args: dict) -> Any:
     if tone not in {"standard", "firm", "urgent"}:
         tone = "standard"
     req = DraftFollowupRequest(tone=tone, request_documents=True)  # type: ignore[arg-type]
-    return draft_followup_email(args.get("po_number", ""), req)
+    return draft_followup_email(args.get("po_number", ""), req, tenant_id=_tenant_id())
 
 
 def _summarize_email(email: Any) -> str:
@@ -126,7 +154,7 @@ def _summarize_email(email: Any) -> str:
 
 
 def _tool_vendor_scorecard(args: dict) -> Any:
-    return get_vendor_scorecard(args.get("name", ""))
+    return get_vendor_scorecard(args.get("name", ""), tenant_id=_tenant_id())
 
 
 def _summarize_vendor(sc: Any) -> str:
@@ -140,7 +168,7 @@ def _summarize_vendor(sc: Any) -> str:
 
 
 def _tool_all_vendors(_: dict) -> Any:
-    return list_vendor_summaries()
+    return list_vendor_summaries(tenant_id=_tenant_id())
 
 
 def _summarize_vendors(vs: List[Any]) -> str:
@@ -148,7 +176,7 @@ def _summarize_vendors(vs: List[Any]) -> str:
 
 
 def _tool_concentration(_: dict) -> Any:
-    return list_category_concentration()
+    return list_category_concentration(tenant_id=_tenant_id())
 
 
 def _summarize_concentration(cats: List[Any]) -> str:
@@ -159,7 +187,7 @@ def _summarize_concentration(cats: List[Any]) -> str:
 
 
 def _tool_commercial(_: dict) -> Any:
-    return build_commercial_summary()
+    return build_commercial_summary(tenant_id=_tenant_id())
 
 
 def _summarize_commercial(c: Any) -> str:
@@ -170,7 +198,7 @@ def _summarize_commercial(c: Any) -> str:
 
 
 def _tool_logistics(_: dict) -> Any:
-    return list_shipments()
+    return list_shipments(tenant_id=_tenant_id())
 
 
 def _summarize_logistics(q: Any) -> str:
@@ -181,12 +209,13 @@ def _summarize_logistics(q: Any) -> str:
 
 
 def _tool_procurement_plan(args: dict) -> Any:
+    tid = _tenant_id()
     pid = args.get("project_id", "")
     if not pid:
-        projects = list_projects()
+        projects = list_projects(tenant_id=tid)
         if projects:
             pid = projects[0].project_id
-    return build_procurement_plan(pid)
+    return build_procurement_plan(pid, tenant_id=tid)
 
 
 def _summarize_plan(plan: Any) -> str:
@@ -201,7 +230,7 @@ def _summarize_plan(plan: Any) -> str:
 
 
 def _tool_projects(_: dict) -> Any:
-    return list_projects()
+    return list_projects(tenant_id=_tenant_id())
 
 
 def _summarize_projects(ps: List[Any]) -> str:
@@ -209,7 +238,7 @@ def _summarize_projects(ps: List[Any]) -> str:
 
 
 def _tool_open_rfqs(_: dict) -> Any:
-    return [r for r in list_rfqs() if r.status in {"open", "quotes_received"}]
+    return [r for r in list_rfqs(tenant_id=_tenant_id()) if r.status in {"open", "quotes_received"}]
 
 
 def _summarize_rfqs(rs: List[Any]) -> str:
@@ -219,7 +248,7 @@ def _summarize_rfqs(rs: List[Any]) -> str:
 
 
 def _tool_open_prs(_: dict) -> Any:
-    return [p for p in list_prs() if p.status in {"draft", "rfq_issued", "quoted"}]
+    return [p for p in list_prs(tenant_id=_tenant_id()) if p.status in {"draft", "rfq_issued", "quoted"}]
 
 
 def _summarize_prs(ps: List[Any]) -> str:
@@ -238,7 +267,7 @@ def _tool_simulate(args: dict) -> Any:
         alternate_vendor=args.get("alternate_vendor"),
         custom_slip_days=args.get("custom_slip_days"),
     )
-    return run_simulation(req)
+    return run_simulation(req, tenant_id=_tenant_id())
 
 
 def _summarize_simulation(r: Any) -> str:
@@ -251,13 +280,56 @@ def _summarize_simulation(r: Any) -> str:
 
 
 def _tool_recommend_mode(args: dict) -> Any:
-    return recommend_mode(args.get("po_ref", ""))
+    return recommend_mode(args.get("po_ref", ""), tenant_id=_tenant_id())
 
 
 def _summarize_mode(rec: Any) -> str:
     if not rec:
         return "Shipment not found."
     return f"{rec.current_mode} → {rec.recommended_mode} (×{rec.cost_multiplier:.1f}, ~{rec.transit_days_estimate}d)."
+
+
+def _tool_propose_vendor_onboarding(args: dict) -> Any:
+    user = get_tool_user()
+    if user is None:
+        return {"error": "No authenticated user in request context — cannot submit vendor for approval."}
+
+    name = (args.get("name") or "").strip()
+    if not name:
+        return {"error": "Vendor name is required."}
+
+    from .approvals import gate_vendor
+
+    supplier = SupplierRecord(
+        name=name,
+        category=args.get("category") or "General supplies",
+        country=args.get("country") or "Norway",
+        lead_time_days=int(args.get("lead_time_days", 45)),
+        on_time_delivery_pct=float(args.get("on_time_delivery_pct", 90.0)),
+        quality_ppm=int(args.get("quality_ppm", 500)),
+        annual_spend_usd=float(args.get("annual_spend_usd", 100_000.0)),
+        approved_alternatives=int(args.get("approved_alternatives", 1)),
+        risk_flags=args.get("risk_flags") or ["new supplier"],
+    )
+    return gate_vendor(supplier, user)
+
+
+def _summarize_propose_vendor(result: Any) -> str:
+    if isinstance(result, dict) and result.get("error"):
+        return str(result["error"])
+    if not isinstance(result, GatedVendorReply):
+        return "Vendor onboarding proposal processed."
+    supplier_name = None
+    if result.approval and result.approval.payload.get("supplier"):
+        supplier_name = result.approval.payload["supplier"].get("name")
+    if result.scorecard:
+        supplier_name = result.scorecard.vendor
+    name = supplier_name or "vendor"
+    if result.status == "pending_approval" and result.approval:
+        return f"Submitted vendor {name} for approval ({result.approval.approval_id})"
+    if result.status == "applied":
+        return f"Vendor {name} onboarded (auto-approved)"
+    return f"Vendor onboarding proposal for {name} processed."
 
 
 # --- Registry ---------------------------------------------------------------
@@ -423,6 +495,32 @@ TOOLS: Dict[str, Tool] = {
         persona="general",
         run=_tool_simulate,
         summarize=_summarize_simulation,
+    ),
+    "propose_vendor_onboarding": Tool(
+        name="propose_vendor_onboarding",
+        description=(
+            "Submit a new vendor for governance approval. Creates a real vendor_onboarding "
+            "approval that procurement head must approve before the vendor appears in the master list. "
+            "Use when the user wants to onboard, add, or propose a new supplier."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Vendor legal/display name"},
+                "category": {"type": "string", "description": "Supply category (e.g. Forged valves)"},
+                "country": {"type": "string"},
+                "lead_time_days": {"type": "integer"},
+                "on_time_delivery_pct": {"type": "number"},
+                "quality_ppm": {"type": "integer"},
+                "annual_spend_usd": {"type": "number"},
+                "approved_alternatives": {"type": "integer"},
+                "risk_flags": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["name", "category", "country"],
+        },
+        persona="vendor_risk",
+        run=_tool_propose_vendor_onboarding,
+        summarize=_summarize_propose_vendor,
     ),
 }
 

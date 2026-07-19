@@ -6,3 +6,9 @@ __pycache__/
 *.pyc
 *.tsbuildinfo
 .DS_Store
+.logs/
+.pids/
+.env
+.env.local
+.env.production
+.data/

@@ -1,14 +1,26 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { AddVendorModal } from "@/components/add-vendor-modal";
+import { AnimatedKpiTile, Donut, HBar, MotionPanel, CHART_PALETTE } from "@/components/charts";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { fetchVendorConcentration, fetchVendorIntel } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { formatMoney } from "@/lib/format-date";
 import { useAsync } from "@/lib/use-async";
 import type { Grade } from "@/lib/types";
+
+const GRADE_COLOR: Record<Grade, string> = {
+  A: CHART_PALETTE.accent,
+  B: CHART_PALETTE.sky,
+  C: CHART_PALETTE.gold,
+  D: CHART_PALETTE.ember,
+  F: CHART_PALETTE.rose,
+};
 
 const GRADE_TONE: Record<Grade, string> = {
   A: "severity-low",
@@ -19,9 +31,12 @@ const GRADE_TONE: Record<Grade, string> = {
 };
 
 export default function VendorsPage() {
+  const { hasPerm } = useAuth();
   const intel = useAsync(fetchVendorIntel, []);
   const concentration = useAsync(fetchVendorConcentration, []);
   const [query, setQuery] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const router = useRouter();
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -40,7 +55,86 @@ export default function VendorsPage() {
         eyebrow="Vendors"
         title="Vendor Intelligence"
         description="Approved suppliers scored across delivery, quality, price, responsiveness, claims, and risk. Click a vendor for the full scorecard + alternates."
+        right={
+          hasPerm("vendor", "create") ? (
+            <button className="btn btn-primary" onClick={() => setAddOpen(true)}>
+              + Add vendor
+            </button>
+          ) : null
+        }
       />
+
+      <AddVendorModal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onCreated={(scorecard) => {
+          intel.reload();
+          concentration.reload();
+          router.push(`/vendors/${encodeURIComponent(scorecard.vendor)}`);
+        }}
+      />
+
+      {(intel.data || []).length > 0 ? (
+        <>
+          <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <AnimatedKpiTile
+              label="Vendors"
+              value={(intel.data || []).length}
+              delay={0.00}
+            />
+            <AnimatedKpiTile
+              label="Single-source"
+              value={(intel.data || []).filter((v) => v.single_source_exposure).length}
+              tone={(intel.data || []).filter((v) => v.single_source_exposure).length > 0 ? "warn" : "good"}
+              delay={0.05}
+            />
+            <AnimatedKpiTile
+              label="Annual spend"
+              value={(intel.data || []).reduce((s, v) => s + v.annual_spend_usd, 0)}
+              prefix="$"
+              delay={0.10}
+            />
+            <AnimatedKpiTile
+              label="Avg score"
+              value={(intel.data || []).length ? (intel.data || []).reduce((s, v) => s + v.composite_score, 0) / (intel.data || []).length : 0}
+              suffix="/100"
+              format={(v) => v.toFixed(0)}
+              tone={(intel.data || []).length && (intel.data || []).reduce((s, v) => s + v.composite_score, 0) / (intel.data || []).length >= 75 ? "good" : "neutral"}
+              delay={0.15}
+            />
+          </section>
+
+          <MotionPanel delay={0.20}>
+            <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Donut
+                title="Grade distribution"
+                colorMap={GRADE_COLOR}
+                data={Object.entries(
+                  (intel.data || []).reduce((acc: Record<string, number>, v) => {
+                    acc[v.composite_grade] = (acc[v.composite_grade] || 0) + 1;
+                    return acc;
+                  }, {})
+                ).map(([name, value]) => ({ name, value }))}
+                centerLabel="vendors"
+                centerValue={(intel.data || []).length}
+                height={240}
+              />
+              <div className="md:col-span-2">
+                <HBar
+                  title="Top 8 by annual spend"
+                  color={CHART_PALETTE.accent}
+                  data={[...(intel.data || [])]
+                    .sort((a, b) => b.annual_spend_usd - a.annual_spend_usd)
+                    .slice(0, 8)
+                    .map((v) => ({ name: v.vendor, value: Math.round(v.annual_spend_usd) }))}
+                  valueFormat={(v) => `$${(v / 1000).toFixed(0)}k`}
+                  height={240}
+                />
+              </div>
+            </section>
+          </MotionPanel>
+        </>
+      ) : null}
 
       <section className="panel space-y-3">
         <h2 className="m-0 text-lg font-bold">Category Concentration</h2>

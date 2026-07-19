@@ -1,0 +1,10 @@
+code,description,category,quantity,uom,unit_cost_usd,supplier_name,spec_doc_id,drawing_id,long_lead_days,planned_need_date,milestone_code,status
+STEEL-EXEC-001,Tandem cold roll mill stand (received),Heavy machinery,2,EA,4200000,ThyssenKrupp Specialty Plate,SPEC-STEEL-EXEC-01,DRG-STEEL-EXEC-01,300,2026-07-30,M2,delivered
+STEEL-EXEC-002,Walking-beam reheat furnace (received),Furnace,1,EA,5800000,Voith Industrial Services,SPEC-STEEL-EXEC-02,,330,2026-08-30,M2,delivered
+STEEL-EXEC-003,Mill drive MV variable-speed (received),Automation,12,EA,180000,Bharat Heavy Electricals,SPEC-STEEL-EXEC-03,,210,2026-09-15,M2,delivered
+STEEL-EXEC-004,Coiler downstream tension (received),Heavy machinery,2,EA,1450000,ThyssenKrupp Specialty Plate,SPEC-STEEL-EXEC-04,,240,2026-09-30,M3,delivered
+STEEL-EXEC-005,Work roll forged set (received),Alloy plate,36,EA,82000,ThyssenKrupp Specialty Plate,SPEC-STEEL-EXEC-05,,180,2026-10-15,M3,delivered
+STEEL-EXEC-006,Pickle line acid recovery (ordered),Process,1,LOT,2400000,Voith Industrial Services,SPEC-STEEL-EXEC-06,,210,2026-11-30,M3,ordered
+STEEL-EXEC-007,Skin pass mill assembly (planned),Heavy machinery,1,EA,3200000,,,,180,2026-12-30,M3,planned
+STEEL-EXEC-008,Strip surface inspection system (planned),Automation,2,EA,640000,Bharat Heavy Electricals,,,150,2027-01-15,M4,planned
+STEEL-EXEC-009,Crop shear high-tonnage (planned),Heavy machinery,1,EA,1800000,,,,180,2027-02-15,M4,planned

@@ -1,7 +1,11 @@
 import "./globals.css";
 
-import { Shell } from "@/components/shell/shell";
-import { StoreProvider } from "@/lib/store-context";
+import { AuthProvider } from "@/lib/auth-context";
+import { ToastProvider } from "@/lib/toast-context";
+import { CommandPalette } from "@/components/command-palette";
+import { Copilot } from "@/components/copilot";
+import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
+import { RootFrame } from "@/components/shell/root-frame";
 
 export const metadata = {
   title: "Supply Chain Control Tower",
@@ -14,9 +18,14 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <StoreProvider>
-          <Shell>{children}</Shell>
-        </StoreProvider>
+        <AuthProvider>
+          <ToastProvider>
+            <RootFrame>{children}</RootFrame>
+            <CommandPalette />
+            <Copilot />
+            <KeyboardShortcuts />
+          </ToastProvider>
+        </AuthProvider>
       </body>
     </html>
   );
