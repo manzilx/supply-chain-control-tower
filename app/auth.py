@@ -65,6 +65,10 @@ _PERMS: dict[str, Set[str]] = {
         "bom:create",
         "vendor:*",
         "ingest:*",
+        "grn:*",
+        "store:create",
+        "device:enrol",
+        "device:revoke",
     },
     "buyer": {
         "*:read",
@@ -85,6 +89,11 @@ _PERMS: dict[str, Set[str]] = {
     },
     "viewer": {
         "*:read",
+    },
+    "storekeeper": {
+        "grn:create", "grn:read", "grn:confirm",
+        "issue:create", "issue:read",
+        "stock:read", "po:read", "project:read",
     },
 }
 

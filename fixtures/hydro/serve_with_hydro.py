@@ -16,13 +16,22 @@ _demo = build_hydro_demo()
 _orig_build = _sd.build_demo_request
 
 
-def _patched_build():
-    req = _orig_build()
-    req.suppliers.extend(_demo.suppliers)
-    req.inventory.extend(_demo.inventory)
-    req.purchase_orders.extend(_demo.purchase_orders)
-    req.demand_signals.extend(_demo.demand_signals)
-    req.incidents.extend(_demo.incidents)
+# build_demo_request gained a tenant_id parameter and memoizes the returned
+# AgentRequest per tenant (_MEMO in sample_data). The hydro deltas must
+# therefore be appended exactly once per tenant — extending on every call
+# would grow the shared memoized object without bound.
+_hydro_extended: set = set()
+
+
+def _patched_build(tenant_id: str = "arcforge"):
+    req = _orig_build(tenant_id)
+    if tenant_id not in _hydro_extended:
+        _hydro_extended.add(tenant_id)
+        req.suppliers.extend(_demo.suppliers)
+        req.inventory.extend(_demo.inventory)
+        req.purchase_orders.extend(_demo.purchase_orders)
+        req.demand_signals.extend(_demo.demand_signals)
+        req.incidents.extend(_demo.incidents)
     return req
 
 

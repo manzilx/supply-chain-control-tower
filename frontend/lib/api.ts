@@ -7,16 +7,22 @@ import type {
   AwardRFQRequest,
   BOMItem,
   BomUploadResult,
+  CaptureDeviceOut,
   CategoryConcentration,
   ChatReply,
   ChatRequest,
   CommercialLine,
   CommercialSummary,
+  ConfirmGrnReply,
+  ConfirmGrnRequest,
+  CreateEnrolmentRequest,
   CreatePRRequest,
   CreateQuoteRequest,
   CreateRFQRequest,
+  CreateStoreRequest,
   DecideApprovalRequest,
   DraftFollowupRequest,
+  EnrolmentInviteOut,
   ExpediteItem,
   ExpediteQueue,
   FollowupEmail,
@@ -24,6 +30,9 @@ import type {
   GatedAwardReply,
   GatedQuoteReply,
   GatedVendorReply,
+  GrnDetail,
+  GrnSummary,
+  LedgerEntryOut,
   LoginReply,
   LogisticsQueue,
   MeReply,
@@ -38,6 +47,8 @@ import type {
   IngestCommitReply,
   IngestPreviewReply,
   SearchIndex,
+  SiteStoreOut,
+  StockBalance,
   SupplierRecord,
   PurchaseRequisition,
   Quote,
@@ -657,4 +668,98 @@ export function approveApproval(id: string, req: DecideApprovalRequest = {}): Pr
 }
 export function rejectApproval(id: string, req: DecideApprovalRequest = {}): Promise<Approval> {
   return postJson<Approval>(`/api/approvals/${encodeURIComponent(id)}/reject`, req);
+}
+
+// --- Storemark: Site Store / GRN ---
+
+export function fetchStockBalances(): Promise<StockBalance[]> {
+  return getJson<StockBalance[]>("/api/store/stock");
+}
+export function fetchCodeLedger(code: string, storeId?: string): Promise<LedgerEntryOut[]> {
+  const q = new URLSearchParams();
+  if (storeId) q.set("store_id", storeId);
+  const qs = q.toString();
+  return getJson<LedgerEntryOut[]>(`/api/store/stock/${encodeURIComponent(code)}/ledger${qs ? "?" + qs : ""}`);
+}
+export function fetchStoreGrns(
+  params: { status?: string; triage?: boolean; store_id?: string } = {},
+): Promise<GrnSummary[]> {
+  const q = new URLSearchParams();
+  if (params.status) q.set("status", params.status);
+  if (params.triage !== undefined) q.set("triage", String(params.triage));
+  if (params.store_id) q.set("store_id", params.store_id);
+  const qs = q.toString();
+  return getJson<GrnSummary[]>(`/api/store/grns${qs ? "?" + qs : ""}`);
+}
+export function fetchStoreGrn(grnId: string): Promise<GrnDetail> {
+  return getJson<GrnDetail>(`/api/store/grns/${encodeURIComponent(grnId)}`);
+}
+
+/**
+ * The GRN photo endpoint requires an Authorization header, so a plain <img src>
+ * can't hit it directly — fetch the blob with the same auth-header logic as
+ * the private `request()` helper, then hand back an object URL. Caller owns
+ * the URL's lifetime and must revokeObjectURL it (e.g. on unmount / selection change).
+ */
+export async function fetchGrnPhotoObjectUrl(grnId: string): Promise<string> {
+  const path = `/api/store/grns/${encodeURIComponent(grnId)}/photo`;
+  const headers = new Headers();
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const override = getTenantOverride();
+  if (override) headers.set("X-Tenant-Override", override);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      cache: "no-store",
+      headers,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(0, `GET ${path} timed out after ${REQUEST_TIMEOUT_MS / 1000}s`, "");
+    }
+    throw new ApiError(0, `GET ${path} — network error`, "");
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    if (res.status === 401 && token) {
+      setToken(null);
+    }
+    throw new ApiError(res.status, body || `GET ${path} failed (${res.status})`, body);
+  }
+
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
+export function confirmGrn(grnId: string, req: ConfirmGrnRequest): Promise<ConfirmGrnReply> {
+  return postJson<ConfirmGrnReply>(`/api/store/grns/${encodeURIComponent(grnId)}/confirm`, req);
+}
+export function rejectGrn(grnId: string, reason: string): Promise<GrnDetail> {
+  return postJson<GrnDetail>(`/api/store/grns/${encodeURIComponent(grnId)}/reject`, { reason });
+}
+
+export function fetchStores(): Promise<SiteStoreOut[]> {
+  return getJson<SiteStoreOut[]>("/api/store/stores");
+}
+export function createStore(req: CreateStoreRequest): Promise<SiteStoreOut> {
+  return postJson<SiteStoreOut>("/api/store/stores", req);
+}
+
+export function fetchFieldDevices(): Promise<CaptureDeviceOut[]> {
+  return getJson<CaptureDeviceOut[]>("/api/field-admin/devices");
+}
+export function createEnrolment(req: CreateEnrolmentRequest): Promise<EnrolmentInviteOut> {
+  return postJson<EnrolmentInviteOut>("/api/field-admin/enrolments", req);
+}
+export function revokeDevice(deviceId: string): Promise<CaptureDeviceOut> {
+  return postJson<CaptureDeviceOut>(`/api/field-admin/devices/${encodeURIComponent(deviceId)}/revoke`, {});
 }

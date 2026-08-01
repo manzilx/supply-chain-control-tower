@@ -400,6 +400,53 @@ def trace_from_bom(
                                 },
                                 complete=po.sap_status == "synced",
                             ))
+                        # Site GRN (Storemark). ct_gr_qty is the site channel —
+                        # only apply_ct_receipt() writes it, so a truthy value
+                        # means a confirmed GRN landed even if the audit ring
+                        # buffer has since rolled the events out.
+                        if po.ct_gr_qty:
+                            gr_events = [
+                                e for e in query(
+                                    action="gr_posted", entity_kind="po",
+                                    po_no=po.po_no, tenant_id=tenant_id,
+                                ).events
+                                if e.metadata and "grn_no" in e.metadata
+                            ]  # SAP-channel GRs carry no grn_no — excluded here
+                            grn_nos: List[str] = []
+                            for e in gr_events:
+                                grn_no = e.metadata["grn_no"]
+                                if grn_no not in grn_nos:
+                                    grn_nos.append(grn_no)
+                            grn_events = []
+                            for grn_no in grn_nos:
+                                page = query(
+                                    action="grn_confirmed", entity_kind="grn",
+                                    entity_id=grn_no, tenant_id=tenant_id, limit=1,
+                                )
+                                grn_events.extend(page.events)
+                            site_events = gr_events + grn_events
+                            stages.append(TraceStage(
+                                stage="site_grn",
+                                label=f"Site GRN · {po.ct_gr_qty:g}/{po.quantity:g} {po.uom}",
+                                status="grn_confirmed",
+                                occurred_at=(
+                                    max(e.occurred_at for e in site_events) if site_events else None
+                                ),
+                                detail=", ".join(grn_nos) or "Site receipt recorded",
+                                payload={
+                                    "ct_gr_qty": po.ct_gr_qty,
+                                    "grn_nos": grn_nos,
+                                    "events": [
+                                        {
+                                            "action": e.action,
+                                            "grn_no": (e.metadata or {}).get("grn_no") or e.entity_id,
+                                            "qty": (e.metadata or {}).get("qty"),
+                                        }
+                                        for e in site_events
+                                    ],
+                                },
+                                complete=po.ct_gr_qty >= po.quantity,
+                            ))
                         # Shipment
                         shipment = get_shipment(po.po_no, tenant_id=tenant_id)
                         if shipment:

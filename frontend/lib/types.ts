@@ -587,7 +587,7 @@ export type AuditPage = {
 export type TraceStage = {
   stage:
     | "bom_item" | "spec" | "pr" | "rfq" | "quotes" | "technical_eval"
-    | "award" | "po" | "sap" | "shipment" | "delivery" | "invoice";
+    | "award" | "po" | "sap" | "site_grn" | "shipment" | "delivery" | "invoice";
   label: string;
   entity_id?: string | null;
   status?: string | null;
@@ -1190,7 +1190,8 @@ export type Role =
   | "procurement_head"
   | "buyer"
   | "expeditor"
-  | "viewer";
+  | "viewer"
+  | "storekeeper";
 
 export type Tenant = {
   tenant_id: string;
@@ -1270,3 +1271,196 @@ export type GatedQuoteReply =
 export type GatedVendorReply =
   | { status: "applied"; scorecard: VendorScorecard; approval?: null }
   | { status: "pending_approval"; approval: Approval; scorecard?: null };
+
+// --- Storemark: Site Store / GRN ---
+
+export type SiteStoreOut = {
+  store_id: string;
+  tenant_id: string;
+  project_id: string;
+  name: string;
+  location_note: string | null;
+  active: boolean;
+  created_at: string;
+};
+
+export type CreateStoreRequest = {
+  project_id: string;
+  name: string;
+  location_note?: string | null;
+};
+
+export type StorePersonRole = "storekeeper" | "foreman";
+
+export type CreateEnrolmentRequest = {
+  store_id: string;
+  person_name: string;
+  person_role: StorePersonRole;
+};
+
+export type EnrolmentInviteOut = {
+  code: string;
+  store_id: string;
+  person_name: string;
+  person_role: StorePersonRole;
+  expires_at: string;
+};
+
+export type CaptureDeviceOut = {
+  device_id: string;
+  person_name: string;
+  person_role: StorePersonRole;
+  store_id: string | null;
+  project_id: string | null;
+  enrolled_at: string;
+  enrolled_by: string;
+  last_seen_at: string | null;
+  last_sequence_no: number;
+  revoked_at: string | null;
+};
+
+export type MatchCandidate = {
+  po_no: string;
+  vendor: string;
+  code: string;
+  description: string;
+  score: number;
+  remaining_qty: number;
+  uom: string;
+};
+
+export type GrnMatchStatus = "unmatched" | "auto" | "suggested" | "confirmed" | "no_po";
+
+export type GrnLineOut = {
+  grn_line_id: string;
+  line_no: number;
+  description_raw: string;
+  code: string | null;
+  uom_raw: string | null;
+  uom: string | null;
+  qty_challan: number | null;
+  qty_received: number;
+  qty_damaged: number;
+  qty_rejected: number;
+  batch_no: string | null;
+  po_no: string | null;
+  match_status: GrnMatchStatus;
+  match_confidence: number | null;
+  match_candidates: MatchCandidate[] | null;
+  over_receipt: boolean;
+};
+
+export type GrnStatus =
+  | "captured"
+  | "extracting"
+  | "matched"
+  | "suggested"
+  | "triage"
+  | "confirmed"
+  | "cancelled"
+  | "superseded";
+
+export type GrnSourceKind = "contractor" | "free_issue";
+export type GrnExtractionStatus = "pending" | "running" | "done" | "failed" | "skipped";
+
+export type GrnSummary = {
+  grn_id: string;
+  grn_no: string | null;
+  status: GrnStatus;
+  source_kind: GrnSourceKind;
+  vendor_name: string | null;
+  challan_no: string | null;
+  store_id: string;
+  line_count: number;
+  observed_at: string;
+  confirmed_at: string | null;
+};
+
+export type GrnDetail = {
+  grn_id: string;
+  grn_no: string | null;
+  tenant_id: string;
+  store_id: string;
+  project_id: string;
+  device_id: string;
+  status: GrnStatus;
+  source_kind: GrnSourceKind;
+  challan_no: string | null;
+  challan_date: string | null;
+  vendor_name_raw: string | null;
+  vendor_name: string | null;
+  vehicle_no: string | null;
+  remarks: string | null;
+  photo_sha256: string;
+  extraction_status: GrnExtractionStatus;
+  extraction_model: string | null;
+  observed_at: string;
+  received_at: string;
+  confirmed_at: string | null;
+  confirmed_by: string | null;
+  confirmed_via: string | null;
+  created_at: string;
+  lines: GrnLineOut[];
+};
+
+export type ConfirmLine = {
+  line_no: number;
+  po_no?: string | null;
+  no_po?: boolean;
+  qty_received: number;
+  qty_damaged?: number;
+  qty_rejected?: number;
+  uom?: string | null;
+  batch_no?: string | null;
+};
+
+export type ConfirmGrnRequest = {
+  lines: ConfirmLine[];
+};
+
+export type ConfirmGrnReply = {
+  grn_id: string;
+  grn_no: string | null;
+  status: GrnStatus;
+  ledger_entries: number;
+  pos_updated: string[];
+  pos_delivered: string[];
+};
+
+export type StockBalance = {
+  code: string;
+  description: string;
+  uom: string;
+  store_id: string;
+  contractor_qty: number;
+  free_issue_qty: number;
+  total_qty: number;
+  last_movement_at: string;
+};
+
+export type LedgerEntryOut = {
+  entry_id: string;
+  store_id: string;
+  code: string;
+  description: string;
+  uom: string;
+  movement: string;
+  qty_signed: number;
+  source_kind: GrnSourceKind;
+  ref_kind: string;
+  ref_id: string;
+  po_no: string | null;
+  vendor: string | null;
+  effective_at: string;
+  entered_at: string;
+  entered_by: string;
+};
+
+export type VendorOtdRow = {
+  vendor: string;
+  po_no: string;
+  need_by: string | null;
+  first_receipt_at: string | null;
+  full_receipt_at: string | null;
+  on_time: boolean | null;
+};

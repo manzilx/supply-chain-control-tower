@@ -46,6 +46,7 @@ def _seed_users() -> Dict[str, User]:
             ("buyer", "Senior Buyer", "buyer"),
             ("expeditor", "Lead Expeditor", "expeditor"),
             ("viewer", "Project Controls Viewer", "viewer"),
+            ("store", "Site Storekeeper", "storekeeper"),
         ]
         for short, title, role in roster:
             user_id = f"{slug}-{short}-01"
@@ -97,6 +98,6 @@ def list_personas() -> List[Persona]:
             )
         )
     # Stable ordering: by tenant name, then by role priority.
-    role_order = {"admin": 0, "procurement_head": 1, "buyer": 2, "expeditor": 3, "viewer": 4}
+    role_order = {"admin": 0, "procurement_head": 1, "buyer": 2, "expeditor": 3, "viewer": 4, "storekeeper": 5}
     out.sort(key=lambda p: (p.tenant_name, role_order.get(p.role, 99)))
     return out

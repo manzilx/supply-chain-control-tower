@@ -144,3 +144,101 @@ def grok_json(system: str, user: str, *, max_tokens: int = 800, timeout: int = 3
             except json.JSONDecodeError:
                 pass
         return None
+
+
+def grok_vision_json(
+    system: str,
+    user: str,
+    image_path: str,
+    *,
+    max_tokens: int = 1600,
+    timeout: int = 60,
+) -> Optional[dict]:
+    """Single-turn Grok vision call over one local image. Returns parsed JSON or None.
+
+    Mirrors grok_chat/grok_json's urllib style and fenced-JSON salvage, but
+    builds a multimodal user message (text + base64 image) instead of a plain
+    string. Returns None on ANY failure: disabled, unreadable file, HTTP error,
+    or invalid JSON.
+    """
+
+    api_key = os.getenv("XAI_API_KEY", "").strip()
+    if not api_key:
+        return None
+
+    import base64
+
+    try:
+        with open(image_path, "rb") as f:
+            image_b64 = base64.b64encode(f.read()).decode("ascii")
+    except OSError:
+        return None
+
+    model = os.getenv("XAI_VISION_MODEL", "").strip() or XAI_MODEL
+    system = (
+        system
+        + "\n\nReturn ONLY a single valid JSON object. No prose, no markdown fences."
+    )
+
+    body: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                    },
+                ],
+            },
+        ],
+        "temperature": 0.1,
+        "max_tokens": max_tokens,
+        "response_format": {"type": "json_object"},
+    }
+    if XAI_REASONING_EFFORT:
+        body["reasoning_effort"] = XAI_REASONING_EFFORT
+
+    req = request.Request(
+        url=f"{XAI_BASE}/chat/completions",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
+    )
+    import time as _time
+    t0 = _time.perf_counter()
+    try:
+        with request.urlopen(req, timeout=timeout) as resp:
+            parsed = json.loads(resp.read().decode("utf-8"))
+        record_call((_time.perf_counter() - t0) * 1000, ok=True)
+        raw = (
+            parsed.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+            .strip()
+        )
+    except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError, KeyError, ValueError):
+        record_call((_time.perf_counter() - t0) * 1000, ok=False)
+        return None
+
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`")
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:].lstrip()
+            try:
+                return json.loads(cleaned)
+            except json.JSONDecodeError:
+                pass
+        return None

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -574,7 +574,7 @@ class SetWeightsRequest(BaseModel):
 AuditEntityKind = Literal[
     "bom_item", "project", "pr", "rfq", "quote", "award", "po",
     "shipment", "shipment_event", "technical_evaluation", "sap_event",
-    "vendor", "spec", "approval", "ai_brief", "system",
+    "vendor", "spec", "approval", "ai_brief", "system", "grn",
 ]
 
 AuditAction = Literal[
@@ -597,9 +597,10 @@ AuditAction = Literal[
     "exported",
     "ai_generated",
     "followup_sent",
+    "grn_confirmed",
 ]
 
-AuditSource = Literal["ui", "api", "sap_webhook", "ai", "scheduled_job", "csv_upload", "system"]
+AuditSource = Literal["ui", "api", "sap_webhook", "ai", "scheduled_job", "csv_upload", "system", "field_device"]
 
 
 class AuditEvent(BaseModel):
@@ -660,7 +661,7 @@ class TraceStage(BaseModel):
 
     stage: Literal[
         "bom_item", "spec", "pr", "rfq", "quotes", "technical_eval",
-        "award", "po", "sap", "shipment", "delivery", "invoice",
+        "award", "po", "sap", "site_grn", "shipment", "delivery", "invoice",
     ]
     label: str
     entity_id: Optional[str] = None
@@ -723,6 +724,8 @@ class SourcingPO(BaseModel):
     sap_error: Optional[str] = None
     sap_gr_qty: Optional[float] = None   # goods receipt qty from SAP
     sap_ir_value_usd: Optional[float] = None  # invoice receipt value from SAP
+    ct_gr_qty: Optional[float] = None    # site GRN qty from Storemark
+    ct_delivered_at: Optional[datetime] = None
 
 
 class SourcingTimelineEvent(BaseModel):
@@ -1172,7 +1175,7 @@ WeeklyPlan.model_rebuild()
 # --- M7: Auth + Tenants + Approvals -----------------------------------------
 
 
-Role = Literal["admin", "procurement_head", "buyer", "expeditor", "viewer"]
+Role = Literal["admin", "procurement_head", "buyer", "expeditor", "viewer", "storekeeper"]
 
 
 class Tenant(BaseModel):
@@ -1369,3 +1372,267 @@ class SapEventReply(BaseModel):
     matched_ct_ref: Optional[str] = None
     applied_to: Optional[str] = None  # "PR" or "PO"
     note: Optional[str] = None
+
+
+# --- Storemark: Site Store / GRN ---
+
+
+class CreateStoreRequest(BaseModel):
+    project_id: str
+    name: str
+    location_note: Optional[str] = None
+
+
+class SiteStoreOut(BaseModel):
+    store_id: str
+    tenant_id: str
+    project_id: str
+    name: str
+    location_note: Optional[str]
+    active: bool
+    created_at: str
+
+
+class CreateEnrolmentRequest(BaseModel):
+    store_id: str
+    person_name: str
+    person_role: Literal["storekeeper", "foreman"]
+
+
+class EnrolmentInviteOut(BaseModel):
+    code: str
+    store_id: str
+    person_name: str
+    person_role: str
+    expires_at: str
+
+
+class EnrolDeviceRequest(BaseModel):
+    code: str
+    device_id: str
+    model: Optional[str] = None
+    app_version: Optional[str] = None
+
+
+class EnrolDeviceReply(BaseModel):
+    device_id: str
+    token: str
+    store_id: str
+    project_id: str
+    tenant_id: str
+    person_name: str
+    person_role: str
+    last_sequence_no: int = 0   # re-enrolled device resumes above this watermark
+
+
+class CaptureDeviceOut(BaseModel):
+    device_id: str
+    person_name: str
+    person_role: str
+    store_id: Optional[str]
+    project_id: Optional[str]
+    enrolled_at: str
+    enrolled_by: str
+    last_seen_at: Optional[str]
+    last_sequence_no: int
+    revoked_at: Optional[str]
+
+
+class DeviceContext(BaseModel):
+    device_id: str
+    tenant_id: str
+    store_id: str
+    project_id: str
+    person_name: str
+    person_role: str
+
+
+class FieldContextPO(BaseModel):
+    po_no: str
+    vendor: str
+    code: str
+    description: str
+    quantity: float
+    uom: str
+    ct_gr_qty: float
+    need_by: Optional[str]
+    # deliberately NO price fields
+
+
+class GrnSummary(BaseModel):
+    grn_id: str
+    grn_no: Optional[str]
+    status: str
+    source_kind: str
+    vendor_name: Optional[str]
+    challan_no: Optional[str]
+    store_id: str
+    line_count: int
+    observed_at: str
+    confirmed_at: Optional[str]
+
+
+class FieldContext(BaseModel):
+    store_id: str
+    project_id: str
+    tenant_id: str
+    pos: List[FieldContextPO]
+    vendors: List[str]
+    bom_codes: List[str]
+    uom_aliases: Dict[str, str]
+    recent_receipts: List[GrnSummary]
+
+
+class ManualGrnLine(BaseModel):
+    line_no: int
+    description_raw: str
+    code: Optional[str] = None
+    uom_raw: Optional[str] = None
+    qty_challan: Optional[float] = None
+    qty_received: float = Field(ge=0)
+    qty_damaged: float = Field(default=0, ge=0)
+    qty_rejected: float = Field(default=0, ge=0)
+    batch_no: Optional[str] = None
+
+
+class FieldGrnRecord(BaseModel):
+    grn_id: str
+    sequence_no: int
+    source_kind: Literal["contractor", "free_issue"] = "contractor"
+    observed_at: str
+    device_clock_offset_ms: Optional[int] = None
+    photo_sha256: str
+    challan_no: Optional[str] = None
+    challan_date: Optional[str] = None
+    vendor_name_raw: Optional[str] = None
+    vehicle_no: Optional[str] = None
+    remarks: Optional[str] = None
+    lines: List[ManualGrnLine] = []
+
+
+class GrnSyncReply(BaseModel):
+    grn_id: str
+    status: str
+    duplicate: bool
+
+
+class MatchCandidate(BaseModel):
+    po_no: str
+    vendor: str
+    code: str
+    description: str
+    score: float
+    remaining_qty: float
+    uom: str
+
+
+class GrnLineOut(BaseModel):
+    grn_line_id: str
+    line_no: int
+    description_raw: str
+    code: Optional[str]
+    uom_raw: Optional[str]
+    uom: Optional[str]
+    qty_challan: Optional[float]
+    qty_received: float
+    qty_damaged: float
+    qty_rejected: float
+    batch_no: Optional[str]
+    po_no: Optional[str]
+    match_status: str
+    match_confidence: Optional[float]
+    match_candidates: Optional[List[MatchCandidate]]
+    over_receipt: bool
+
+
+class GrnDetail(BaseModel):
+    grn_id: str
+    grn_no: Optional[str]
+    tenant_id: str
+    store_id: str
+    project_id: str
+    device_id: str
+    status: str
+    source_kind: str
+    challan_no: Optional[str]
+    challan_date: Optional[str]
+    vendor_name_raw: Optional[str]
+    vendor_name: Optional[str]
+    vehicle_no: Optional[str]
+    remarks: Optional[str]
+    photo_sha256: str
+    extraction_status: str
+    extraction_model: Optional[str]
+    observed_at: str
+    received_at: str
+    confirmed_at: Optional[str]
+    confirmed_by: Optional[str]
+    confirmed_via: Optional[str]
+    created_at: str
+    lines: List[GrnLineOut]
+
+
+class ConfirmLine(BaseModel):
+    line_no: int
+    po_no: Optional[str] = None
+    no_po: bool = False
+    qty_received: float = Field(ge=0)
+    qty_damaged: float = Field(default=0, ge=0)
+    qty_rejected: float = Field(default=0, ge=0)
+    uom: Optional[str] = None
+    batch_no: Optional[str] = None
+
+
+class ConfirmGrnRequest(BaseModel):
+    lines: List[ConfirmLine]
+
+
+class ConfirmGrnReply(BaseModel):
+    grn_id: str
+    grn_no: str
+    status: str
+    ledger_entries: int
+    pos_updated: List[str]
+    pos_delivered: List[str]
+
+
+class RejectGrnRequest(BaseModel):
+    reason: str
+
+
+class StockBalance(BaseModel):
+    code: str
+    description: str
+    uom: str
+    store_id: str
+    contractor_qty: float
+    free_issue_qty: float
+    total_qty: float
+    last_movement_at: str
+
+
+class LedgerEntryOut(BaseModel):
+    entry_id: str
+    store_id: str
+    code: str
+    description: str
+    uom: str
+    movement: str
+    qty_signed: float
+    source_kind: str
+    ref_kind: str
+    ref_id: str
+    po_no: Optional[str]
+    vendor: Optional[str]
+    effective_at: str
+    entered_at: str
+    entered_by: str
+
+
+class VendorOtdRow(BaseModel):
+    vendor: str
+    po_no: str
+    need_by: Optional[str]
+    first_receipt_at: Optional[str]
+    full_receipt_at: Optional[str]
+    on_time: Optional[bool]

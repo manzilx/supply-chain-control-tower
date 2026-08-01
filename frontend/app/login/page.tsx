@@ -13,6 +13,7 @@ const ROLE_LABELS: Record<Role, string> = {
   buyer: "Buyer",
   expeditor: "Expeditor",
   viewer: "Viewer",
+  storekeeper: "Site Storekeeper",
 };
 
 const ROLE_ACCENT: Record<Role, string> = {
@@ -21,6 +22,7 @@ const ROLE_ACCENT: Record<Role, string> = {
   buyer: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
   expeditor: "bg-amber-500/15 text-amber-300 border-amber-500/40",
   viewer: "bg-zinc-500/15 text-zinc-300 border-zinc-500/40",
+  storekeeper: "bg-teal-500/15 text-teal-300 border-teal-500/40",
 };
 
 export default function LoginPage() {

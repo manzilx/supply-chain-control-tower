@@ -1,7 +1,7 @@
 // Single source of truth for the primary navigation — consumed by both the
 // desktop sidebar and the mobile drawer so the two can never drift apart.
 
-export type NavGroup = "plan" | "sourcing" | "monitor" | "operate" | "intelligence" | "settings";
+export type NavGroup = "plan" | "sourcing" | "monitor" | "operate" | "store" | "intelligence" | "settings";
 
 export type NavItem = {
   href: string;
@@ -22,6 +22,10 @@ export const NAV: NavItem[] = [
   { href: "/logistics", label: "Logistics", group: "operate" },
   { href: "/pos", label: "Purchase Orders", group: "operate" },
   { href: "/commercial", label: "Commercial", group: "operate" },
+  { href: "/inventory", label: "Inventory", group: "store" },
+  { href: "/store/grn-triage", label: "GRN Triage", group: "store" },
+  { href: "/store/grns", label: "GRN Register", group: "store" },
+  { href: "/store/devices", label: "Field Devices", group: "store" },
   { href: "/agent", label: "Agent", group: "intelligence" },
   { href: "/simulate", label: "Simulate", group: "intelligence" },
   { href: "/audit", label: "Audit Trail", group: "monitor" },
@@ -33,6 +37,7 @@ export const GROUP_LABEL: Record<NavGroup, string> = {
   sourcing: "Sourcing",
   monitor: "Monitor",
   operate: "Operate",
+  store: "Site Store",
   intelligence: "Intelligence",
   settings: "Settings",
 };
@@ -42,6 +47,7 @@ export const GROUP_ORDER: NavGroup[] = [
   "sourcing",
   "monitor",
   "operate",
+  "store",
   "intelligence",
   "settings",
 ];
@@ -53,7 +59,14 @@ export function navGroups(): { group: NavGroup; items: NavItem[] }[] {
   }));
 }
 
-/** Single-letter keys for g-then-key navigation — one per live NAV route. */
+/**
+ * Single-letter keys for g-then-key navigation — one per live NAV route.
+ * Keys must be unique (navShortcutMap keys by letter, so a duplicate silently
+ * shadows the earlier route), must not be "g" (the arming key re-arms the
+ * sequence before the target lookup runs, so "g" can never be a destination),
+ * and must not collide with the standalone keys keyboard-shortcuts.tsx owns
+ * ("i" toggles the Copilot, "?" opens help).
+ */
 export const NAV_SHORTCUT_KEY: Record<string, string> = {
   "/projects": "p",
   "/ingest": "d",
@@ -67,6 +80,10 @@ export const NAV_SHORTCUT_KEY: Record<string, string> = {
   "/logistics": "l",
   "/pos": "b",
   "/commercial": "c",
+  "/inventory": "n", // iNventory
+  "/store/grn-triage": "q", // triage Queue
+  "/store/grns": "h", // GRN History
+  "/store/devices": "k", // field Kit
   "/agent": "t",
   "/simulate": "m",
   "/audit": "u",

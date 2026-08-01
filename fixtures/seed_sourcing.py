@@ -13,9 +13,10 @@ The point is to populate every downstream page that depends on the sourcing
 workflow having been completed: /sourcing, /awards, /sourcing-pos,
 /commercial, the post-award slice of /logistics, and the AI weekly plan.
 
-Also closes out the two existing demo RFQs (RFQ-00001, RFQ-00002) which had
-quotes but were never awarded, and posts shipment events on a handful of
-brand-new POs so /logistics has more than just the legacy scenario rows.
+Also closes out the pre-seeded demo RFQ (RFQ-00001, quotes received but never
+awarded — RFQ-00002 is attempted too for older snapshots that still carry one),
+and posts shipment events on a handful of brand-new POs so /logistics has more
+than just the legacy scenario rows.
 
 Run against a live backend on :8010 — assumes Mahadev Hydro fixture is already
 loaded (i.e. you started uvicorn via fixtures.hydro.serve_with_hydro).
@@ -24,6 +25,7 @@ loaded (i.e. you started uvicorn via fixtures.hydro.serve_with_hydro).
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -31,16 +33,31 @@ import urllib.request
 from typing import Any, Optional
 
 
-API = "http://127.0.0.1:8010"
+API = os.getenv("SEED_API_BASE", "http://127.0.0.1:8010")
+
+# Every project this script touches, mapped to its owning tenant. Writes are
+# tenant-scoped since M7, so each workflow runs under that tenant's
+# procurement head (who self-approves any gated award/quote).
+TENANT_FOR_PROJECT = {
+    "PRJ-RB-660": "arcforge",
+    "HYD-MAHADEV-220": "northwind",
+}
+
+_tokens: dict[str, str] = {}
 
 
-def _req(method: str, path: str, body: Optional[dict] = None) -> Any:
+def _req(method: str, path: str, body: Optional[dict] = None, token: Optional[str] = None) -> Any:
     data = json.dumps(body).encode() if body is not None else None
+    headers: dict[str, str] = {}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(
         f"{API}{path}",
         data=data,
         method=method,
-        headers={"Content-Type": "application/json"} if body is not None else {},
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(req) as r:
@@ -49,6 +66,19 @@ def _req(method: str, path: str, body: Optional[dict] = None) -> Any:
     except urllib.error.HTTPError as e:
         print(f"  [HTTP {e.code}] {method} {path}: {e.read().decode()[:200]}")
         return None
+
+
+def _login(tenant_id: str) -> str:
+    """JWT for the tenant's procurement head, cached per tenant."""
+    token = _tokens.get(tenant_id)
+    if token:
+        return token
+    reply = _req("POST", "/api/auth/login", {"user_id": f"{tenant_id}-head-01"})
+    if not reply or not reply.get("token"):
+        print(f"login failed for tenant {tenant_id}")
+        sys.exit(1)
+    _tokens[tenant_id] = reply["token"]
+    return reply["token"]
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +100,7 @@ def walk_workflow(
 
     label = f"{code:18} ({project_id})"
     print(f"  {label}")
+    token = _login(TENANT_FOR_PROJECT[project_id])
 
     # 1. PR
     pr = _req("POST", "/api/prs", {
@@ -78,7 +109,7 @@ def walk_workflow(
         "code": code,
         "description": description,
         "quantity": quantity,
-    })
+    }, token=token)
     if not pr:
         print(f"    pr failed for {code}")
         return None
@@ -92,7 +123,7 @@ def walk_workflow(
         "vendors": vendors,
         "due_in_days": 14,
         "notes": f"{note_prefix} Multi-source RFQ with {len(vendors)} vendors invited.".strip(),
-    })
+    }, token=token)
     if not rfq:
         print(f"    rfq failed for {code}")
         return None
@@ -113,15 +144,16 @@ def walk_workflow(
         # Strip None notes
         if body["notes"] is None:
             del body["notes"]
-        quote = _req("POST", f"/api/rfqs/{rfq_no}/quotes", body)
+        reply = _req("POST", f"/api/rfqs/{rfq_no}/quotes", body, token=token)
+        quote = (reply or {}).get("quote")  # GatedQuoteReply; head self-approves → applied
         if not quote:
-            print(f"    quote {q['vendor']} failed")
+            print(f"    quote {q['vendor']} failed ({(reply or {}).get('status', 'no reply')})")
             continue
         quote_ids.append((q["vendor"], quote["quote_id"], quote["total_usd"]))
     print(f"    + {len(quote_ids)} quotes")
 
     # 4. Compare (logged for visibility)
-    comp = _req("GET", f"/api/rfqs/{rfq_no}/compare")
+    comp = _req("GET", f"/api/rfqs/{rfq_no}/compare", token=token)
     if comp:
         winner_engine = comp.get("recommended_vendor")
         print(f"    = engine recommends: {winner_engine}")
@@ -142,19 +174,22 @@ def walk_workflow(
     )
     if award_pref and comp and pick != comp.get("recommended_vendor"):
         rationale += f" NOTE: Override from engine recommendation ({comp.get('recommended_vendor')}) — strategic / continuity reasons."
-    award = _req("POST", f"/api/rfqs/{rfq_no}/award", {
+    reply = _req("POST", f"/api/rfqs/{rfq_no}/award", {
         "quote_id": award_quote_id,
         "rationale": rationale,
         "awarded_by": "Procurement Head",
-    })
+    }, token=token)
+    award = (reply or {}).get("award")  # GatedAwardReply; head self-approves → applied
     if not award:
-        print(f"    award failed")
+        print(f"    award failed ({(reply or {}).get('status', 'no reply')})")
         return None
     print(f"    + Award {award['award_id']} → {pick} (USD {award_total:,.0f})")
 
-    # 6. PO is auto-created. Find it.
-    pos = _req("GET", "/api/sourcing-pos") or []
-    po = next((p for p in pos if p["award_id"] == award["award_id"]), None)
+    # 6. PO is auto-created; the gated reply carries it.
+    po = reply.get("po")
+    if po is None:
+        pos = _req("GET", "/api/sourcing-pos", token=token) or []
+        po = next((p for p in pos if p["award_id"] == award["award_id"]), None)
     if po:
         print(f"    + PO  {po['po_no']}")
         return po["po_no"]
@@ -332,17 +367,21 @@ WORKFLOWS = [
 # ---------------------------------------------------------------------------
 
 
-def close_out_existing_rfqs() -> list[str]:
-    """Award the two existing demo RFQs that have quotes but no award yet."""
+def close_out_existing_rfqs() -> list[tuple[str, str]]:
+    """Award the pre-seeded demo RFQs that have quotes but no award yet.
+    These live in the arcforge scenario (seeded off Riverbank BOM lines);
+    missing ones are skipped. Returns (po_no, tenant_id) pairs."""
 
-    pos: list[str] = []
+    tenant_id = "arcforge"
+    token = _login(tenant_id)
+    pos: list[tuple[str, str]] = []
     for rfq_no, prefer in [("RFQ-00001", None), ("RFQ-00002", None)]:
-        comp = _req("GET", f"/api/rfqs/{rfq_no}/compare")
+        comp = _req("GET", f"/api/rfqs/{rfq_no}/compare", token=token)
         if not comp or not comp.get("recommended_vendor"):
             print(f"  [skip] {rfq_no} has no recommendation")
             continue
         winner = prefer or comp["recommended_vendor"]
-        quotes = _req("GET", f"/api/rfqs/{rfq_no}/quotes") or []
+        quotes = _req("GET", f"/api/rfqs/{rfq_no}/quotes", token=token) or []
         winner_quote = next((q for q in quotes if q["vendor"] == winner), None)
         if not winner_quote:
             continue
@@ -350,18 +389,20 @@ def close_out_existing_rfqs() -> list[str]:
             f"Awarded to {winner} per engine ranking (composite score). "
             f"Total: USD {winner_quote['total_usd']:,.0f}."
         )
-        award = _req("POST", f"/api/rfqs/{rfq_no}/award", {
+        reply = _req("POST", f"/api/rfqs/{rfq_no}/award", {
             "quote_id": winner_quote["quote_id"],
             "rationale": rationale,
             "awarded_by": "Procurement Head",
-        })
+        }, token=token)
+        award = (reply or {}).get("award")
         if not award:
             continue
-        # Find the auto-created PO
-        all_pos = _req("GET", "/api/sourcing-pos") or []
-        po = next((p for p in all_pos if p["award_id"] == award["award_id"]), None)
+        po = reply.get("po")
+        if po is None:
+            all_pos = _req("GET", "/api/sourcing-pos", token=token) or []
+            po = next((p for p in all_pos if p["award_id"] == award["award_id"]), None)
         if po:
-            pos.append(po["po_no"])
+            pos.append((po["po_no"], tenant_id))
             print(f"  awarded {rfq_no} → {winner} (PO {po['po_no']})")
     return pos
 
@@ -371,7 +412,7 @@ def close_out_existing_rfqs() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def add_shipment_events(po_numbers: list[str]) -> None:
+def add_shipment_events(po_numbers: list[tuple[str, str]]) -> None:
     """Push a couple of stage events on the first few sourcing POs so /logistics
     has something post-award beyond the legacy scenario rows.
     """
@@ -385,13 +426,15 @@ def add_shipment_events(po_numbers: list[str]) -> None:
         ("at_port",           "JNPT, IN",      "Discharged at JNPT — pending customs"),
         ("at_customs",        "JNPT, IN",      "BIS clearance in progress"),
     ]
-    for po_no in po_numbers[:6]:
+    for po_no, tenant_id in po_numbers[:6]:
+        token = _login(tenant_id)
         # Random-ish stage progression — just walk through a few.
         for stage, location, note in seq[: (hash(po_no) % 4) + 1]:
             evt = _req(
                 "POST",
                 f"/api/logistics/shipments/{po_no}/events",
                 {"stage": stage, "location": location, "note": note},
+                token=token,
             )
             if evt:
                 print(f"  + {po_no} → {stage} @ {location}")
@@ -413,7 +456,7 @@ def main() -> None:
     existing_pos = close_out_existing_rfqs()
 
     print("\n=== walking new sourcing workflows ===")
-    new_pos: list[str] = []
+    new_pos: list[tuple[str, str]] = []
     for w in WORKFLOWS:
         po_no = walk_workflow(
             project_id=w["project_id"],
@@ -425,27 +468,29 @@ def main() -> None:
             award_pref=w.get("award"),
         )
         if po_no:
-            new_pos.append(po_no)
+            new_pos.append((po_no, TENANT_FOR_PROJECT[w["project_id"]]))
 
     add_shipment_events(existing_pos + new_pos)
 
-    # Final tally
-    final_prs   = _req("GET", "/api/prs") or []
-    final_rfqs  = _req("GET", "/api/rfqs") or []
-    final_aw    = _req("GET", "/api/awards") or []
-    final_pos   = _req("GET", "/api/sourcing-pos") or []
-    final_ship  = _req("GET", "/api/logistics/shipments") or {"shipments": []}
-    final_comm  = _req("GET", "/api/commercial/summary") or {}
-    print("\n=== final tally ===")
-    print(f"  PRs            : {len(final_prs)}")
-    print(f"  RFQs           : {len(final_rfqs)}")
-    print(f"  Awards         : {len(final_aw)}")
-    print(f"  Sourcing POs   : {len(final_pos)}")
-    print(f"  Shipments      : {len(final_ship.get('shipments', []))}")
-    print(
-        f"  Commercial     : USD {final_comm.get('total_awarded_usd', 0):>12,.0f} "
-        f"awarded · USD {final_comm.get('total_savings_usd', 0):>10,.0f} savings"
-    )
+    # Final tally — reads are tenant-scoped, so report per tenant.
+    for tenant_id in sorted({t for t in TENANT_FOR_PROJECT.values()}):
+        token = _login(tenant_id)
+        final_prs   = _req("GET", "/api/prs", token=token) or []
+        final_rfqs  = _req("GET", "/api/rfqs", token=token) or []
+        final_aw    = _req("GET", "/api/awards", token=token) or []
+        final_pos   = _req("GET", "/api/sourcing-pos", token=token) or []
+        final_ship  = _req("GET", "/api/logistics/shipments", token=token) or {"shipments": []}
+        final_comm  = _req("GET", "/api/commercial/summary", token=token) or {}
+        print(f"\n=== final tally ({tenant_id}) ===")
+        print(f"  PRs            : {len(final_prs)}")
+        print(f"  RFQs           : {len(final_rfqs)}")
+        print(f"  Awards         : {len(final_aw)}")
+        print(f"  Sourcing POs   : {len(final_pos)}")
+        print(f"  Shipments      : {len(final_ship.get('shipments', []))}")
+        print(
+            f"  Commercial     : USD {final_comm.get('total_awarded_usd', 0):>12,.0f} "
+            f"awarded · USD {final_comm.get('total_savings_usd', 0):>10,.0f} savings"
+        )
 
 
 if __name__ == "__main__":

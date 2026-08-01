@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import hmac
 import os
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Response, UploadFile
+from fastapi import Depends, FastAPI, Header, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import (
@@ -217,6 +218,22 @@ async def _startup_restore() -> None:
     from . import persistence
     persistence.restore_all()
     persistence.start_background_snapshot()
+
+
+@app.on_event("startup")
+async def _startup_store() -> None:
+    """Bootstrap Storemark: prod webhook guard, SQLite schema, confirmed-GRN
+    sweep, and resume of any extraction left pending/running across a
+    restart."""
+    if os.getenv("APP_ENV", "dev").lower() in ("prod", "production") and not os.getenv("SAP_WEBHOOK_TOKEN"):
+        raise RuntimeError(
+            "SAP_WEBHOOK_TOKEN must be set in production so the inbound SAP "
+            f"webhook can be authenticated (APP_ENV={os.getenv('APP_ENV')})."
+        )
+    from .store import db as store_db, extraction as store_extraction, grn as store_grn
+    store_db.init_db()
+    store_grn.startup_sweep()
+    store_extraction.resume_pending()
 
 
 @app.on_event("shutdown")
@@ -476,7 +493,7 @@ async def api_suggest_vendors(
 
 @app.get("/api/rfqs", response_model=list[RFQ])
 async def api_list_rfqs(
-    user: Annotated[User, Depends(current_user)],
+    user: Annotated[User, Depends(require_perm("rfq", "read"))],
 ) -> list[RFQ]:
     return list_rfqs(tenant_id=user.tenant_id)
 
@@ -497,7 +514,7 @@ async def api_issue_rfq(
 @app.get("/api/rfqs/{rfq_no}", response_model=RFQ)
 async def api_get_rfq(
     rfq_no: str,
-    user: Annotated[User, Depends(current_user)],
+    user: Annotated[User, Depends(require_perm("rfq", "read"))],
 ) -> RFQ:
     rfq = get_rfq(rfq_no, tenant_id=user.tenant_id)
     if not rfq:
@@ -508,7 +525,7 @@ async def api_get_rfq(
 @app.get("/api/rfqs/{rfq_no}/quotes", response_model=list[Quote])
 async def api_get_quotes(
     rfq_no: str,
-    user: Annotated[User, Depends(current_user)],
+    user: Annotated[User, Depends(require_perm("quote", "read"))],
 ) -> list[Quote]:
     if not get_rfq(rfq_no, tenant_id=user.tenant_id):
         raise HTTPException(status_code=404, detail="RFQ not found")
@@ -533,7 +550,7 @@ async def api_add_quote(
 @app.get("/api/rfqs/{rfq_no}/compare", response_model=QuoteComparison)
 async def api_compare_quotes(
     rfq_no: str,
-    user: Annotated[User, Depends(current_user)],
+    user: Annotated[User, Depends(require_perm("rfq", "read"))],
 ) -> QuoteComparison:
     comparison = compare_quotes(rfq_no, tenant_id=user.tenant_id)
     if not comparison:
@@ -887,7 +904,7 @@ async def api_audit_export(
 
 @app.get("/api/awards", response_model=list[Award])
 async def api_list_awards(
-    user: Annotated[User, Depends(current_user)],
+    user: Annotated[User, Depends(require_perm("award", "read"))],
 ) -> list[Award]:
     return list_awards(tenant_id=user.tenant_id)
 
@@ -1449,8 +1466,15 @@ async def api_submit_po_to_sap(
 
 
 @app.post("/api/integrations/sap/event", response_model=SapEventReply)
-async def api_sap_event(event: SapEvent) -> SapEventReply:
+async def api_sap_event(
+    event: SapEvent,
+    x_cpi_token: Annotated[Optional[str], Header(alias="X-CPI-Token")] = None,
+) -> SapEventReply:
     """Inbound webhook from CPI carrying SAP status changes."""
+
+    expected = os.getenv("SAP_WEBHOOK_TOKEN")
+    if expected and not (x_cpi_token and hmac.compare_digest(x_cpi_token, expected)):
+        raise HTTPException(status_code=401, detail="Invalid or missing X-CPI-Token")
 
     from .integrations.sap_cpi import record_event_received
     from .sourcing import apply_sap_event
@@ -1496,3 +1520,10 @@ async def api_sap_resync() -> dict[str, Any]:  # noqa: ANN401
                 po.sap_ir_value_usd = (po.sap_ir_value_usd or 0) + float(r["ir_value_usd"])
             po_updated += 1
     return {"prs_reconciled": pr_updated, "pos_reconciled": po_updated}
+
+
+# --- Storemark: site-store GRN capture --------------------------------------
+
+from .store.routes import router as store_router  # noqa: E402
+
+app.include_router(store_router)

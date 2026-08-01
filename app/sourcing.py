@@ -1067,3 +1067,21 @@ def _apply_to_po(po: SourcingPO, event) -> None:
         po.status = "delivered"
     _pos[po.po_no] = po
 
+
+def apply_ct_receipt(po_no: str, qty: float, tenant_id: str, grn_no: str) -> Optional[SourcingPO]:
+    """Accumulate a site (Storemark) goods receipt onto a sourcing PO.
+
+    Site receipts land on ct_gr_qty — never sap_gr_qty; the two channels stay
+    separate and 'delivered' flips when either reaches the PO quantity.
+    Caller owns audit emission and cache invalidation.
+    """
+    po = _pos.get(po_no)
+    if po is None or po.tenant_id != tenant_id:
+        return None
+    po.ct_gr_qty = (po.ct_gr_qty or 0) + float(qty)
+    if po.status != "delivered" and max(po.ct_gr_qty, po.sap_gr_qty or 0) >= po.quantity:
+        po.status = "delivered"
+        po.ct_delivered_at = _now()
+    _pos[po_no] = po
+    return po
+
