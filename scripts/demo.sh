@@ -86,7 +86,7 @@ start_backend() {
   [[ -x "$VENV_PY" ]] || fail "venv python not found at $VENV_PY — run: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
   (
     cd "$ROOT"
-    nohup "$VENV_PY" -m fixtures.hydro.serve_with_hydro \
+    BACKEND_PORT="$BACKEND_PORT" nohup "$VENV_PY" -m fixtures.hydro.serve_with_hydro \
       > "$LOG_DIR/backend.log" 2>&1 &
     echo $! > "$PID_DIR/backend.pid"
   )
@@ -102,7 +102,8 @@ seed_sourcing() {
   step "seeding sourcing workflow (PRs → RFQs → Quotes → Awards → POs)"
   (
     cd "$ROOT"
-    "$VENV_PY" -m fixtures.seed_sourcing > "$LOG_DIR/seed.log" 2>&1
+    SEED_API_BASE="http://127.0.0.1:$BACKEND_PORT" \
+      "$VENV_PY" -m fixtures.seed_sourcing > "$LOG_DIR/seed.log" 2>&1
   )
   tail -7 "$LOG_DIR/seed.log" | sed 's/^/  /'
 }
@@ -115,7 +116,8 @@ start_frontend() {
   )
   (
     cd "$ROOT/frontend"
-    nohup npm run dev -- -p "$FRONTEND_PORT" \
+    NEXT_PUBLIC_API_BASE="${NEXT_PUBLIC_API_BASE:-http://127.0.0.1:$BACKEND_PORT}" \
+      nohup npm run dev -- -p "$FRONTEND_PORT" \
       > "$LOG_DIR/frontend.log" 2>&1 &
     echo $! > "$PID_DIR/frontend.pid"
   )
