@@ -252,6 +252,24 @@ def _summarize_process_map(mmap: Any) -> str:
     )
 
 
+def _tool_process_summaries(_: dict) -> Any:
+    from .process_map import list_process_summaries
+    return list_process_summaries(_tenant_id() or "")
+
+
+def _summarize_process_summaries(rows: List[Any]) -> str:
+    if not rows:
+        return "No projects."
+    flagged = [s for s in rows if s.blocked_total or s.open_risks]
+    blocked = sum(s.blocked_total for s in rows)
+    open_risks = sum(s.open_risks for s in rows)
+    names = ", ".join(s.project_id for s in flagged[:5]) or "none flagged"
+    return (
+        f"{len(rows)} projects · {blocked} blocked lines · {open_risks} open risks · "
+        f"attention: {names}."
+    )
+
+
 def _tool_projects(_: dict) -> Any:
     return list_projects(tenant_id=_tenant_id())
 
@@ -489,6 +507,14 @@ TOOLS: Dict[str, Tool] = {
         persona="planning",
         run=_tool_process_map,
         summarize=_summarize_process_map,
+    ),
+    "portfolio_process_summary": Tool(
+        name="portfolio_process_summary",
+        description="Portfolio SCM process health: blocked lines, bottlenecks, and open risks per project.",
+        input_schema={"type": "object", "properties": {}, "required": []},
+        persona="planning",
+        run=_tool_process_summaries,
+        summarize=_summarize_process_summaries,
     ),
     "list_projects": Tool(
         name="list_projects",

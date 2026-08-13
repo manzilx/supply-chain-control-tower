@@ -257,3 +257,30 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
         bottlenecks=bottlenecks,
         risks=risks,
     )
+
+
+def list_process_summaries(tenant_id: str) -> list:
+    from .planning import list_projects
+    from .schemas import ProjectProcessSummary
+
+    out: list[ProjectProcessSummary] = []
+    for p in list_projects(tenant_id=tenant_id):
+        mmap = build_process_map(p.project_id, tenant_id)
+        if not mmap:
+            continue
+        bn = mmap.bottlenecks[0] if mmap.bottlenecks else None
+        out.append(
+            ProjectProcessSummary(
+                project_id=mmap.project_id,
+                project_name=mmap.project_name,
+                bom_total=mmap.bom_total,
+                blocked_total=mmap.blocked_total,
+                at_risk_total=mmap.at_risk_total,
+                open_risks=mmap.open_risks,
+                bottleneck_stage=bn.stage if bn else None,
+                bottleneck_reason=bn.reason if bn else None,
+                current_by_stage={s.stage: s.current for s in mmap.stages},
+            )
+        )
+    out.sort(key=lambda s: (-s.blocked_total, -s.open_risks, s.project_name))
+    return out

@@ -51,6 +51,7 @@ import type {
   ManagedRisk,
   PatchManagedRiskRequest,
   ProjectProcessMap,
+  ProjectProcessSummary,
   SiteStoreOut,
   StockBalance,
   SupplierRecord,
@@ -209,6 +210,14 @@ export function fetchSearchIndex(): Promise<SearchIndex> {
 
 export function fetchAlerts(): Promise<AlertFeed> {
   return getJson<AlertFeed>("/api/alerts");
+}
+
+export function fetchRiskRegister(): Promise<ManagedRisk[]> {
+  return getJson<ManagedRisk[]>("/api/risks/register");
+}
+
+export function fetchProcessSummaries(): Promise<ProjectProcessSummary[]> {
+  return getJson<ProjectProcessSummary[]>("/api/projects/process-summary");
 }
 
 export function fetchProjectsProgress(): Promise<ProjectProgress[]> {

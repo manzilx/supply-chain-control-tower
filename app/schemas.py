@@ -772,6 +772,18 @@ class ProjectProcessMap(BaseModel):
     risks: List[ManagedRisk] = Field(default_factory=list)
 
 
+class ProjectProcessSummary(BaseModel):
+    project_id: str
+    project_name: str
+    bom_total: int
+    blocked_total: int
+    at_risk_total: int
+    open_risks: int
+    bottleneck_stage: Optional[ProcessStageName] = None
+    bottleneck_reason: Optional[str] = None
+    current_by_stage: Dict[str, int] = Field(default_factory=dict)
+
+
 class Award(BaseModel):
     award_id: str
     tenant_id: str = "arcforge"

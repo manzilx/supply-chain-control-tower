@@ -62,6 +62,24 @@ def list_project_risks(project_id: str, tenant_id: str) -> List[ManagedRisk]:
     return sorted(items, key=lambda r: (rank.get(r.severity, 9), r.title))
 
 
+def list_tenant_risks(tenant_id: str) -> List[ManagedRisk]:
+    from .planning import list_projects
+    for p in list_projects(tenant_id=tenant_id):
+        seed_project(p.project_id, tenant_id)
+    items = list(_risks.get(tenant_id, {}).values())
+    rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    status_rank = {"open": 0, "mitigating": 1, "accepted": 2, "closed": 3}
+    return sorted(
+        items,
+        key=lambda r: (
+            status_rank.get(r.status, 9),
+            rank.get(r.severity, 9),
+            r.project_id,
+            r.title,
+        ),
+    )
+
+
 def get_risk(tenant_id: str, risk_id: str) -> Optional[ManagedRisk]:
     return _risks.get(tenant_id, {}).get(risk_id)
 

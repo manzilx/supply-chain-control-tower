@@ -96,3 +96,56 @@ def test_helios_can_read_own_process_map(client: TestClient) -> None:
     res = client.get("/api/projects/PRJ-HE-WIND/process-map", headers=headers)
     assert res.status_code == 200
     assert res.json()["project_id"] == "PRJ-HE-WIND"
+
+
+def test_process_summary_tenant_isolation(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    res = client.get("/api/projects/process-summary", headers=auth_headers)
+    assert res.status_code == 200
+    body = res.json()
+    assert body, "Arcforge should have at least one project"
+    ids = {row["project_id"] for row in body}
+    assert PROJECT in ids
+    assert "PRJ-HE-WIND" not in ids
+    river = next(row for row in body if row["project_id"] == PROJECT)
+    assert river["bom_total"] > 0
+    assert "spec" in river["current_by_stage"]
+    assert river["open_risks"] >= 1
+    assert sum(river["current_by_stage"].values()) == river["bom_total"]
+
+    helios = client.get(
+        "/api/projects/process-summary",
+        headers=headers_for_user("helios-buyer-01"),
+    )
+    assert helios.status_code == 200
+    helios_ids = {row["project_id"] for row in helios.json()}
+    assert "PRJ-HE-WIND" in helios_ids
+    assert PROJECT not in helios_ids
+
+
+def test_tenant_risk_register_seeds_without_leak(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    bom = client.get(f"/api/projects/{PROJECT}/bom", headers=auth_headers)
+    assert bom.status_code == 200
+    missing = [b for b in bom.json() if b["status"] == "spec_missing"]
+    assert missing, "Riverbank fixture should have spec_missing lines"
+
+    res = client.get("/api/risks/register", headers=auth_headers)
+    assert res.status_code == 200
+    body = res.json()
+    assert body
+    projects = {r["project_id"] for r in body}
+    assert PROJECT in projects
+    assert "PRJ-HE-WIND" not in projects
+    keys = {r["signal_key"] for r in body if r.get("signal_key")}
+    for item in missing:
+        assert f"spec:{item['bom_item_id']}" in keys
+
+    helios = client.get("/api/risks/register", headers=headers_for_user("helios-buyer-01"))
+    assert helios.status_code == 200
+    helios_projects = {r["project_id"] for r in helios.json()}
+    assert PROJECT not in helios_projects

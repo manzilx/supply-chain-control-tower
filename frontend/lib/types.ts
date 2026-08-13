@@ -362,6 +362,18 @@ export type ProjectProcessMap = {
   risks: ManagedRisk[];
 };
 
+export type ProjectProcessSummary = {
+  project_id: string;
+  project_name: string;
+  bom_total: number;
+  blocked_total: number;
+  at_risk_total: number;
+  open_risks: number;
+  bottleneck_stage?: ProcessStageName | null;
+  bottleneck_reason?: string | null;
+  current_by_stage: Record<string, number>;
+};
+
 export type BOMItem = {
   bom_item_id: string;
   project_id: string;

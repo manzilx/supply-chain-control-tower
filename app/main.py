@@ -72,6 +72,7 @@ from .schemas import (
     Project,
     ProjectProgress,
     ProjectProcessMap,
+    ProjectProcessSummary,
     CreateManagedRiskRequest,
     ManagedRisk,
     PatchManagedRiskRequest,
@@ -359,13 +360,21 @@ async def api_list_projects(
     return list_projects(tenant_id=user.tenant_id)
 
 
-# NOTE: declared before /api/projects/{project_id} so "progress" isn't
-# captured as a project_id by the dynamic route.
+# NOTE: declared before /api/projects/{project_id} so "progress" / "process-summary"
+# aren't captured as a project_id by the dynamic route.
 @app.get("/api/projects/progress", response_model=list[ProjectProgress])
 async def api_list_project_progress(
     user: Annotated[User, Depends(current_user)],
 ) -> list[ProjectProgress]:
     return list_project_progress(tenant_id=user.tenant_id)
+
+
+@app.get("/api/projects/process-summary", response_model=list[ProjectProcessSummary])
+async def api_list_process_summaries(
+    user: Annotated[User, Depends(current_user)],
+) -> list[ProjectProcessSummary]:
+    from .process_map import list_process_summaries
+    return list_process_summaries(user.tenant_id)
 
 
 @app.get("/api/projects/{project_id}", response_model=Project)
@@ -710,6 +719,14 @@ async def api_alerts(
 ) -> AlertFeed:
     from .alerts import build_alert_feed
     return build_alert_feed(user)
+
+
+@app.get("/api/risks/register", response_model=list[ManagedRisk])
+async def api_tenant_risk_register(
+    user: Annotated[User, Depends(current_user)],
+) -> list[ManagedRisk]:
+    from .risk_register import list_tenant_risks
+    return list_tenant_risks(user.tenant_id)
 
 
 # --- Technical Bid Evaluation (TBE) -----------------------------------------
