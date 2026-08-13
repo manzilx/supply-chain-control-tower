@@ -14,6 +14,7 @@ from .schemas import (
     BOMItem,
     ProcessBottleneck,
     ProcessLineRef,
+    ProcessNextAction,
     ProcessReviewAction,
     ProcessStageBucket,
     ProcessStageName,
@@ -97,6 +98,18 @@ def _href(stage: ProcessStageName, project_id: str, pr: Optional[PurchaseRequisi
             return "/logistics", po.po_no
         return "/pos", po.po_no
     return f"/projects/{project_id}/bom", None
+
+
+def _next_action(
+    stage: ProcessStageName,
+    item: BOMItem,
+    pr: Optional[PurchaseRequisition],
+) -> Optional[ProcessNextAction]:
+    if stage == "spec" and item.status == "spec_missing":
+        return "request_spec"
+    if stage == "pr" and pr is None:
+        return "create_pr"
+    return None
 
 
 def _classify(
@@ -226,6 +239,7 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
             blocked=blocked,
             at_risk=at_risk,
             entity_id=entity_id,
+            next_action=_next_action(stage, item, pr),
         )
         buckets[stage].append(ref)
         current_idx[item.bom_item_id] = _INDEX[stage]

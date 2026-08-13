@@ -1,13 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/empty-state";
 import { KpiTile } from "@/components/kpi-tile";
 import { PageHeader } from "@/components/page-header";
 import { ProjectTabs } from "@/components/project-tabs";
+import { SpecRequestModal } from "@/components/spec-request-modal";
 import {
+  createPr,
   createProjectRisk,
   fetchProcessMap,
   fetchRiskMitigations,
@@ -19,6 +22,7 @@ import type {
   CreateManagedRiskRequest,
   ManagedRisk,
   ManagedRiskStatus,
+  ProcessLineRef,
   ProcessReviewAction,
   ProcessStageBucket,
   ProcessStageName,
@@ -41,18 +45,27 @@ const STAGES: ProcessStageName[] = [
 const SCORE: Record<Severity, number> = { low: 30, medium: 55, high: 78, critical: 92 };
 
 export default function ProcessPage({ params }: { params: { id: string } }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { hasPerm } = useAuth();
   const canUpdate = hasPerm("risk", "update");
+  const canCreatePr = hasPerm("pr", "create");
   const map = useAsync(() => fetchProcessMap(params.id), [params.id]);
+  const qStage = searchParams.get("stage");
+  const queryStage = STAGES.includes(qStage as ProcessStageName)
+    ? (qStage as ProcessStageName)
+    : null;
   const [stage, setStage] = useState<ProcessStageName | null>(null);
   const [statusFilter, setStatusFilter] = useState<ManagedRiskStatus | "all">("all");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [suggesting, setSuggesting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [creatingPrFor, setCreatingPrFor] = useState<string | null>(null);
+  const [specRequestFor, setSpecRequestFor] = useState<ProcessLineRef | null>(null);
 
   const data = map.data;
   const selected: ProcessStageBucket | undefined = data?.stages.find(
-    (s) => s.stage === (stage ?? data.stages.find((x) => x.current)?.stage),
+    (s) => s.stage === (stage ?? queryStage ?? data.stages.find((x) => x.current)?.stage),
   );
 
   const risks = useMemo(() => {
@@ -106,12 +119,24 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
     }
   }
 
+  async function handleCreatePr(bomItemId: string) {
+    setCreatingPrFor(bomItemId);
+    setError(null);
+    try {
+      const pr = await createPr({ project_id: params.id, bom_item_id: bomItemId });
+      router.push(`/sourcing/prs/${pr.pr_no}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create PR");
+      setCreatingPrFor(null);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <PageHeader
         eyebrow={params.id}
         title={data?.project_name ?? "SCM Process"}
-        description="Live BOM→delivery map for this project. This week's review lists the next actions; risks keep status and owner across refreshes."
+        description="Live BOM→delivery map for this project. Request a spec or raise a PR from a stage, then manage the risk register."
       />
       <ProjectTabs projectId={params.id} />
 
@@ -206,9 +231,30 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
                         {item.at_risk ? <span className="badge severity-medium ml-1">at risk</span> : null}
                       </td>
                       <td>
-                        <Link href={item.href} className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent">
-                          Open
-                        </Link>
+                        <div className="flex flex-wrap gap-2 justify-end">
+                          {item.next_action === "request_spec" ? (
+                            <button
+                              type="button"
+                              className="btn btn-secondary text-xs py-1"
+                              onClick={() => setSpecRequestFor(item)}
+                            >
+                              Request spec
+                            </button>
+                          ) : null}
+                          {item.next_action === "create_pr" && canCreatePr ? (
+                            <button
+                              type="button"
+                              className="btn btn-secondary text-xs py-1"
+                              disabled={creatingPrFor === item.bom_item_id}
+                              onClick={() => void handleCreatePr(item.bom_item_id)}
+                            >
+                              {creatingPrFor === item.bom_item_id ? "…" : "Create PR"}
+                            </button>
+                          ) : null}
+                          <Link href={item.href} className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent self-center">
+                            Open
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -233,6 +279,15 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
           />
         </>
       )}
+
+      {specRequestFor ? (
+        <SpecRequestModal
+          projectId={params.id}
+          bomItemId={specRequestFor.bom_item_id}
+          code={specRequestFor.code}
+          onClose={() => setSpecRequestFor(null)}
+        />
+      ) : null}
     </div>
   );
 }

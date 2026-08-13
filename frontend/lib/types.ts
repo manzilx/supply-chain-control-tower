@@ -284,6 +284,7 @@ export type ProcessStageName =
   | "delivery";
 
 export type ManagedRiskStatus = "open" | "mitigating" | "accepted" | "closed";
+export type ProcessNextAction = "request_spec" | "create_pr";
 
 export type ProcessLineRef = {
   bom_item_id: string;
@@ -294,6 +295,7 @@ export type ProcessLineRef = {
   blocked: boolean;
   at_risk: boolean;
   entity_id?: string | null;
+  next_action?: ProcessNextAction | null;
 };
 
 export type ProcessStageBucket = {

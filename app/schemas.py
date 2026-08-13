@@ -693,6 +693,7 @@ ProcessStageName = Literal[
 ]
 ManagedRiskStatus = Literal["open", "mitigating", "accepted", "closed"]
 ManagedRiskSource = Literal["live", "manual"]
+ProcessNextAction = Literal["request_spec", "create_pr"]
 
 
 class ProcessLineRef(BaseModel):
@@ -704,6 +705,7 @@ class ProcessLineRef(BaseModel):
     blocked: bool = False
     at_risk: bool = False
     entity_id: Optional[str] = None
+    next_action: Optional[ProcessNextAction] = None
 
 
 class ProcessStageBucket(BaseModel):

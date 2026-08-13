@@ -166,6 +166,27 @@ def test_process_map_review_actions_for_blocked_spec(
     assert "Unblock" in spec["title"]
 
 
+def test_process_line_next_actions(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    res = client.get(f"/api/projects/{PROJECT}/process-map", headers=auth_headers)
+    assert res.status_code == 200
+    stages = {s["stage"]: s for s in res.json()["stages"]}
+    spec_items = stages["spec"]["items"]
+    assert spec_items
+    assert all(i["next_action"] == "request_spec" for i in spec_items)
+
+    for item in stages["pr"]["items"]:
+        if item.get("entity_id"):
+            assert item["next_action"] is None
+        else:
+            assert item["next_action"] == "create_pr"
+
+    for item in stages["delivery"]["items"]:
+        assert item["next_action"] is None
+
+
 def test_weekly_plan_includes_process_review(
     client: TestClient,
     auth_headers: dict[str, str],
