@@ -135,7 +135,11 @@ def _upsert_live(
         _risks.setdefault(tenant_id, {})[risk.risk_id] = risk
 
 
-def seed_project(project_id: str, tenant_id: str) -> None:
+def seed_project(
+    project_id: str,
+    tenant_id: str,
+    aging_buckets: Optional[Dict[str, list]] = None,
+) -> None:
     """Collect live signals and upsert. Marks vanished live rows live=False."""
     from .approvals import list_approvals
     from .commercial import build_commercial_lines
@@ -252,6 +256,34 @@ def seed_project(project_id: str, tenant_id: str) -> None:
             category="approval",
             process_stage="award",
             href="/approvals",
+        )
+
+    from .process_map import AGING_DAYS, STAGE_LABEL, STAGE_NEXT, collect_process_buckets
+
+    buckets = aging_buckets
+    if buckets is None:
+        packed = collect_process_buckets(project_id, tenant_id)
+        buckets = packed[1] if packed else {}
+    for stage, items in buckets.items():
+        if stage in {"spec", "delivery"}:
+            continue
+        aging_items = [i for i in items if (i.days_in_stage or 0) >= AGING_DAYS]
+        if not aging_items:
+            continue
+        oldest_line = max(aging_items, key=lambda i: i.days_in_stage or 0)
+        oldest = oldest_line.days_in_stage or 0
+        sev: Severity = "high" if oldest >= 21 else "medium"
+        add(
+            f"aging:{stage}",
+            title=f"{len(aging_items)} line(s) aging at {STAGE_LABEL[stage]}",
+            detail=(
+                f"Oldest {oldest_line.code} · {oldest}d. "
+                f"{STAGE_NEXT.get(stage, 'Move the line to the next stage.')}"
+            ),
+            severity=sev,
+            category="process",
+            process_stage=stage,
+            href=f"/projects/{project_id}/process?stage={stage}",
         )
 
     now = _now()

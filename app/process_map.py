@@ -19,6 +19,7 @@ from .schemas import (
     ProcessReviewAction,
     ProcessStageBucket,
     ProcessStageName,
+    Project,
     ProjectProcessMap,
     PurchaseRequisition,
     Quote,
@@ -255,7 +256,11 @@ def _classify(
     return "pr", False, need_soon, item.status
 
 
-def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProcessMap]:
+def collect_process_buckets(
+    project_id: str,
+    tenant_id: str,
+) -> Optional[Tuple[Project, Dict[ProcessStageName, List[ProcessLineRef]], Dict[str, int]]]:
+    """Classify every BOM line into a stage. Does not seed the risk register."""
     project = get_project(project_id, tenant_id=tenant_id)
     if project is None:
         return None
@@ -325,7 +330,15 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
         buckets[stage].append(ref)
         current_idx[item.bom_item_id] = _INDEX[stage]
 
-    n = len(bom)
+    return project, buckets, current_idx
+
+
+def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProcessMap]:
+    packed = collect_process_buckets(project_id, tenant_id)
+    if packed is None:
+        return None
+    project, buckets, current_idx = packed
+    n = sum(len(items) for items in buckets.values())
     stages: List[ProcessStageBucket] = []
     bottlenecks: List[ProcessBottleneck] = []
     blocked_total = 0
@@ -376,7 +389,7 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
 
     from .risk_register import list_project_risks, seed_project
 
-    seed_project(project_id, tenant_id)
+    seed_project(project_id, tenant_id, aging_buckets=buckets)
     risks = list_project_risks(project_id, tenant_id)
     open_risks = sum(1 for r in risks if r.status in {"open", "mitigating"})
 

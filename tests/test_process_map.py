@@ -51,6 +51,16 @@ def test_process_map_reports_stage_dwell(
     river = next(s for s in summary.json() if s["project_id"] == PROJECT)
     assert river["aging_total"] >= spec["aging"]
 
+    keys = {r["signal_key"] for r in body["risks"] if r.get("signal_key")}
+    assert "aging:pr" in keys
+    assert "aging:spec" not in keys
+    aging = next(r for r in body["risks"] if r["signal_key"] == "aging:pr")
+    assert aging["source"] == "live"
+    assert aging["live"] is True
+    assert aging["process_stage"] == "pr"
+    assert aging["category"] == "process"
+    assert "/process?stage=pr" in (aging.get("href") or "")
+
 
 def test_missing_spec_buckets_and_seeds_risk(
     client: TestClient,
@@ -102,6 +112,31 @@ def test_patch_status_survives_reseed(
     assert again["mitigation"] == "Chase engineering"
     assert again["live"] is True
     assert again["signal_key"] == risk["signal_key"]
+
+
+def test_aging_risk_patch_survives_reseed(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    first = client.get(f"/api/projects/{PROJECT}/process-map", headers=auth_headers)
+    assert first.status_code == 200
+    risk = next(r for r in first.json()["risks"] if r.get("signal_key") == "aging:pr")
+    patched = client.patch(
+        f"/api/projects/{PROJECT}/risks/{risk['risk_id']}",
+        headers=auth_headers,
+        json={"status": "accepted", "owner": "Buyer One", "mitigation": "PR wave this week"},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["status"] == "accepted"
+
+    second = client.get(f"/api/projects/{PROJECT}/process-map", headers=auth_headers)
+    assert second.status_code == 200
+    again = next(r for r in second.json()["risks"] if r["risk_id"] == risk["risk_id"])
+    assert again["status"] == "accepted"
+    assert again["owner"] == "Buyer One"
+    assert again["mitigation"] == "PR wave this week"
+    assert again["live"] is True
+    assert again["signal_key"] == "aging:pr"
 
 
 def test_process_map_cross_tenant_404(
@@ -165,6 +200,17 @@ def test_tenant_risk_register_seeds_without_leak(
     keys = {r["signal_key"] for r in body if r.get("signal_key")}
     for item in missing:
         assert f"spec:{item['bom_item_id']}" in keys
+    assert "aging:pr" in keys
+    aging_pr = next(
+        r for r in body
+        if r.get("signal_key") == "aging:pr" and r["project_id"] == PROJECT
+    )
+    assert aging_pr["category"] == "process"
+    assert aging_pr["live"] is True
+    assert not any(
+        r.get("signal_key") == "aging:spec" and r["project_id"] == PROJECT
+        for r in body
+    )
 
     helios = client.get("/api/risks/register", headers=headers_for_user("helios-buyer-01"))
     assert helios.status_code == 200

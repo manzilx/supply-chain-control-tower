@@ -277,8 +277,9 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
     summaries = list_process_summaries(tenant_id or "")
     process_blocked = sum(s.blocked_total for s in summaries)
     process_open_risks = sum(s.open_risks for s in summaries)
+    process_aging = sum(s.aging_total for s in summaries)
     for summary in summaries:
-        if summary.blocked_total == 0 and summary.open_risks == 0:
+        if summary.blocked_total == 0 and summary.open_risks == 0 and summary.aging_total == 0:
             continue
         stage_label = (summary.bottleneck_stage or "pipeline").replace("_", " ")
         if summary.blocked_total:
@@ -442,8 +443,8 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
         ),
         KpiSnapshot(
             label="Process Blocked",
-            value=f"{process_blocked} lines · {process_open_risks} open risks",
-            tone="bad" if process_blocked else ("warn" if process_open_risks else "good"),
+            value=f"{process_blocked} lines · {process_aging} aging · {process_open_risks} open risks",
+            tone="bad" if process_blocked else ("warn" if process_aging or process_open_risks else "good"),
         ),
         KpiSnapshot(
             label="Open Incidents",
