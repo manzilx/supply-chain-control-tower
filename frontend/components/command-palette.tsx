@@ -15,6 +15,8 @@ const KIND_LABEL: Record<SearchKind | "page", string> = {
   vendor: "Vendor",
   pr: "PR",
   po: "PO",
+  process: "Process",
+  risk: "Risk",
 };
 
 const KIND_TONE: Record<SearchKind | "page", string> = {
@@ -24,6 +26,8 @@ const KIND_TONE: Record<SearchKind | "page", string> = {
   vendor: "text-steady",
   pr: "text-ink",
   po: "text-ink",
+  process: "text-accent",
+  risk: "text-warning",
 };
 
 type PaletteItem = {
@@ -125,7 +129,7 @@ export function CommandPalette() {
     const items = index.items;
     if (!q) {
       const grouped: SearchIndexItem[] = [];
-      for (const kind of ["project", "pr", "vendor", "bom", "po"] as SearchKind[]) {
+      for (const kind of ["project", "process", "pr", "vendor", "bom", "po", "risk"] as SearchKind[]) {
         const first = items.filter((i) => i.kind === kind).slice(0, kind === "project" ? 5 : 3);
         grouped.push(...first);
       }
@@ -184,7 +188,7 @@ export function CommandPalette() {
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search pages, projects, BOM, vendors, PRs, POs…"
+            placeholder="Search pages, projects, process, risks, BOM, vendors, PRs, POs…"
             className="flex-1 bg-transparent outline-none text-ink placeholder:text-muted text-base"
           />
           <button

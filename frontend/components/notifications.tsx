@@ -22,6 +22,7 @@ const CATEGORY_ICON: Record<string, string> = {
   commercial: "$",
   expediting: "▲",
   engineering: "⚙",
+  process: "◎",
 };
 
 export function Notifications() {

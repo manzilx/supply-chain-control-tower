@@ -185,3 +185,57 @@ def test_weekly_plan_includes_process_review(
     helios_refs = [ref for i in helios.json()["items"] for ref in i["supporting_refs"]]
     assert f"project:{PROJECT}" not in helios_refs
 
+
+def test_search_index_includes_process_and_risks(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    res = client.get("/api/search/index", headers=auth_headers)
+    assert res.status_code == 200
+    items = res.json()["items"]
+    process = [i for i in items if i["kind"] == "process"]
+    assert any(i["project_id"] == PROJECT and i["href"].endswith("/process") for i in process)
+    assert all(i["project_id"] != "PRJ-HE-WIND" for i in process)
+    risks = [i for i in items if i["kind"] == "risk"]
+    assert any(i["project_id"] == PROJECT for i in risks)
+    assert any("spec" in (i["title"] + " ".join(i.get("tags") or [])).lower() for i in risks)
+
+    helios = client.get("/api/search/index", headers=headers_for_user("helios-buyer-01"))
+    assert helios.status_code == 200
+    helios_items = helios.json()["items"]
+    assert all(i.get("project_id") != PROJECT for i in helios_items)
+
+
+def test_alerts_include_process_rollup(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    res = client.get("/api/alerts", headers=auth_headers)
+    assert res.status_code == 200
+    process = [a for a in res.json()["alerts"] if a["category"] == "process"]
+    assert process
+    assert any(PROJECT in a["href"] for a in process)
+
+
+def test_risk_patch_emits_audit(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    first = client.get(f"/api/projects/{PROJECT}/process-map", headers=auth_headers)
+    assert first.status_code == 200
+    risk = next(r for r in first.json()["risks"] if r["signal_key"] and r["signal_key"].startswith("spec:"))
+    patched = client.patch(
+        f"/api/projects/{PROJECT}/risks/{risk['risk_id']}",
+        headers=auth_headers,
+        json={"status": "accepted", "owner": "Buyer One"},
+    )
+    assert patched.status_code == 200
+
+    audit = client.get(f"/api/audit/entity/risk/{risk['risk_id']}", headers=auth_headers)
+    assert audit.status_code == 200
+    events = audit.json()
+    assert events
+    assert any(e["action"] == "updated" and e["entity_kind"] == "risk" for e in events)
+    assert all(e.get("project_id") != "PRJ-HE-WIND" for e in events)
+
+

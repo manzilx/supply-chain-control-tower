@@ -451,9 +451,23 @@ async def api_create_project_risk(
     user: Annotated[User, Depends(require_perm("risk", "update"))],
 ) -> ManagedRisk:
     from .risk_register import create_manual
+    from .audit import emit
     if not get_project(project_id, tenant_id=user.tenant_id):
         raise HTTPException(status_code=404, detail="Project not found")
-    return create_manual(project_id, user.tenant_id, body)
+    risk = create_manual(project_id, user.tenant_id, body)
+    emit(
+        action="created",
+        entity_kind="risk",
+        entity_id=risk.risk_id,
+        subject=risk.title,
+        summary=f"Manual risk added on {project_id}",
+        actor=user.user_id,
+        source="ui",
+        tenant_id=user.tenant_id,
+        project_id=project_id,
+        after=risk.model_dump(mode="json"),
+    )
+    return risk
 
 
 @app.patch("/api/projects/{project_id}/risks/{risk_id}", response_model=ManagedRisk)
@@ -464,14 +478,36 @@ async def api_patch_project_risk(
     user: Annotated[User, Depends(require_perm("risk", "update"))],
 ) -> ManagedRisk:
     from .risk_register import get_risk, patch_risk
+    from .audit import emit
     if not get_project(project_id, tenant_id=user.tenant_id):
         raise HTTPException(status_code=404, detail="Project not found")
     existing = get_risk(user.tenant_id, risk_id)
     if existing is None or existing.project_id != project_id:
         raise HTTPException(status_code=404, detail="Risk not found")
+    before = existing.model_dump(mode="json")
     updated = patch_risk(user.tenant_id, risk_id, body)
     if updated is None:
         raise HTTPException(status_code=404, detail="Risk not found")
+    bits = []
+    if body.status is not None:
+        bits.append(f"status {before.get('status')} → {updated.status}")
+    if body.owner is not None:
+        bits.append(f"owner → {updated.owner or '(none)'}")
+    if body.mitigation is not None:
+        bits.append("mitigation updated")
+    emit(
+        action="updated",
+        entity_kind="risk",
+        entity_id=updated.risk_id,
+        subject=updated.title,
+        summary="; ".join(bits) or f"Risk {updated.risk_id} updated",
+        actor=user.user_id,
+        source="ui",
+        tenant_id=user.tenant_id,
+        project_id=project_id,
+        before=before,
+        after=updated.model_dump(mode="json"),
+    )
     return updated
 
 
@@ -1237,6 +1273,14 @@ def _build_search_index(tenant_id: str) -> SearchIndex:
             project_id=p.project_id,
             tags=[p.sector],
         ))
+        items.append(SearchIndexItem(
+            kind="process", id=f"{p.project_id}:process",
+            title=f"Process · {p.name}",
+            subtitle="SCM map, review pack, and risk register",
+            href=f"/projects/{p.project_id}/process",
+            project_id=p.project_id,
+            tags=["process", "scm", "risks"],
+        ))
         for b in get_bom(p.project_id, tenant_id=tenant_id):
             items.append(SearchIndexItem(
                 kind="bom", id=b.bom_item_id,
@@ -1270,6 +1314,18 @@ def _build_search_index(tenant_id: str) -> SearchIndex:
             href=f"/pos?po={po.po_no}",
             project_id=po.project_id,
             tags=[po.status, po.vendor],
+        ))
+    from .risk_register import list_tenant_risks
+    for r in list_tenant_risks(tenant_id):
+        if r.status not in {"open", "mitigating"}:
+            continue
+        items.append(SearchIndexItem(
+            kind="risk", id=r.risk_id,
+            title=r.title,
+            subtitle=f"{r.project_id} · {r.status} · {r.severity}",
+            href=f"/projects/{r.project_id}/process",
+            project_id=r.project_id,
+            tags=[r.status, r.severity, r.category, r.process_stage or ""],
         ))
     return SearchIndex(generated_at=datetime.now(timezone.utc), items=items)
 

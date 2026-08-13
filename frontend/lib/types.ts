@@ -240,7 +240,7 @@ export type PortfolioSummary = {
   activity: PortfolioActivity[];
 };
 
-export type SearchKind = "project" | "bom" | "vendor" | "pr" | "po";
+export type SearchKind = "project" | "bom" | "vendor" | "pr" | "po" | "process" | "risk";
 
 export type SearchIndexItem = {
   kind: SearchKind;
@@ -639,7 +639,7 @@ export type TBE = {
 export type AuditEntityKind =
   | "bom_item" | "project" | "pr" | "rfq" | "quote" | "award" | "po"
   | "shipment" | "shipment_event" | "technical_evaluation" | "sap_event"
-  | "vendor" | "spec" | "approval" | "ai_brief" | "system";
+  | "vendor" | "spec" | "approval" | "ai_brief" | "system" | "grn" | "risk";
 
 export type AuditAction =
   | "created" | "updated" | "deleted"

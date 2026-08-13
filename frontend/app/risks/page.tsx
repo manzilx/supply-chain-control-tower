@@ -50,6 +50,7 @@ const KNOWN_CATEGORIES = [
   "commercial",
   "expediting",
   "engineering",
+  "process",
 ] as const;
 
 const SCORE: Record<Severity, number> = { low: 30, medium: 55, high: 78, critical: 92 };

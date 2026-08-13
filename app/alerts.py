@@ -9,6 +9,7 @@ that already exist across modules — what a control tower exists to surface:
   * projects trending over budget
   * expediting escalations (high slip probability)
   * BOM lines still missing specifications on near-term milestones
+  * open process-register risks rolled up per project
 
 Read-only + cached. Each alert carries an href so the UI can deep-link.
 """
@@ -46,7 +47,7 @@ def build_alert_feed(user: User) -> AlertFeed:
 @ttl_cache(ttl_seconds=10.0)
 def _cached_feed(tenant_id: str, can_decide: bool) -> AlertFeed:
     from . import approvals
-    from .planning import compute_project_progress, get_bom, list_projects
+    from .planning import compute_project_progress, get_bom, get_project, list_projects
     from .commercial import build_commercial_summary
     from .expediting import build_expedite_queue
     from .vendor_intel import list_vendor_summaries
@@ -151,6 +152,38 @@ def _cached_feed(tenant_id: str, can_decide: bool) -> AlertFeed:
             "Issue spec requests to engineering to protect the procurement runway.",
             "/projects",
         )
+
+    # 7. Process register — one rollup per project with open/mitigating risks
+    try:
+        from collections import defaultdict
+        from .risk_register import list_tenant_risks
+
+        by_project: dict[str, list] = defaultdict(list)
+        for r in list_tenant_risks(tenant_id):
+            if r.status in {"open", "mitigating"}:
+                by_project[r.project_id].append(r)
+        ranked = sorted(
+            by_project.items(),
+            key=lambda kv: (
+                -sum(1 for r in kv[1] if r.severity == "critical"),
+                -sum(1 for r in kv[1] if r.severity == "high"),
+                -len(kv[1]),
+            ),
+        )
+        for project_id, risks in ranked[:5]:
+            crit = sum(1 for r in risks if r.severity == "critical")
+            high = sum(1 for r in risks if r.severity == "high")
+            sev = "critical" if crit else ("high" if high else "medium")
+            project = get_project(project_id, tenant_id=tenant_id)
+            name = project.name if project else project_id
+            add(
+                sev, "process",
+                f"{name}: {len(risks)} open process risk(s)",
+                f"{crit} critical · {high} high — review the process map and register.",
+                f"/projects/{project_id}/process",
+            )
+    except Exception:  # noqa: BLE001
+        pass
 
     alerts.sort(key=lambda a: _SEVERITY_RANK.get(a.severity, 9))
     counts: dict[str, int] = {}

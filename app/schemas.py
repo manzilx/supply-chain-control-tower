@@ -336,7 +336,7 @@ class PortfolioActivity(BaseModel):
 
 
 class SearchIndexItem(BaseModel):
-    kind: Literal["project", "bom", "vendor", "pr", "po"]
+    kind: Literal["project", "bom", "vendor", "pr", "po", "process", "risk"]
     id: str
     title: str
     subtitle: Optional[str] = None
@@ -574,7 +574,7 @@ class SetWeightsRequest(BaseModel):
 AuditEntityKind = Literal[
     "bom_item", "project", "pr", "rfq", "quote", "award", "po",
     "shipment", "shipment_event", "technical_evaluation", "sap_event",
-    "vendor", "spec", "approval", "ai_brief", "system", "grn",
+    "vendor", "spec", "approval", "ai_brief", "system", "grn", "risk",
 ]
 
 AuditAction = Literal[
