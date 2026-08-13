@@ -7,10 +7,16 @@ import { CompletionBar } from "@/components/completion-bar";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { SkeletonCard } from "@/components/skeleton";
-import { fetchBom, fetchProject, fetchProjects, fetchProjectsProgress } from "@/lib/api";
+import {
+  fetchBom,
+  fetchProcessSummaries,
+  fetchProject,
+  fetchProjects,
+  fetchProjectsProgress,
+} from "@/lib/api";
 import { daysFromNow, formatDate } from "@/lib/format-date";
 import { useAsync } from "@/lib/use-async";
-import type { Milestone } from "@/lib/types";
+import type { Milestone, ProjectProcessSummary } from "@/lib/types";
 
 function nextMilestone(ms: Milestone[]): Milestone | null {
   const future = ms
@@ -27,8 +33,12 @@ const _prefetched = new Set<string>();
 export default function ProjectsPage() {
   const { data, loading, error } = useAsync(fetchProjects, []);
   const progress = useAsync(fetchProjectsProgress, []);
+  const process = useAsync(fetchProcessSummaries, []);
   const progressById = new Map(
     (progress.data ?? []).map((p) => [p.project_id, p]),
+  );
+  const processById = new Map(
+    (process.data ?? []).map((p) => [p.project_id, p]),
   );
   const router = useRouter();
 
@@ -37,6 +47,7 @@ export default function ProjectsPage() {
     _prefetched.add(projectId);
     // Warm Next.js' route cache + warm the API caches in parallel.
     router.prefetch(`/projects/${encodeURIComponent(projectId)}`);
+    router.prefetch(`/projects/${encodeURIComponent(projectId)}/process`);
     void fetchProject(projectId);
     void fetchBom(projectId);
   }
@@ -46,7 +57,7 @@ export default function ProjectsPage() {
       <PageHeader
         eyebrow="Plan"
         title="Projects"
-        description="Engineering projects with their milestones and procurement plans. Open a project to see its BOM and generated plan."
+        description="Engineering projects with milestones, procurement plans, and live SCM process health. Open Process for the BOM→delivery map and risk register."
       />
 
       {loading ? (
@@ -65,20 +76,25 @@ export default function ProjectsPage() {
           {data.map((p) => {
             const next = nextMilestone(p.milestones);
             const days = next ? daysFromNow(next.required_on_site_date) : null;
+            const overviewHref = `/projects/${encodeURIComponent(p.project_id)}`;
+            const processHref = `${overviewHref}/process`;
             return (
-              <Link
+              <article
                 key={p.project_id}
-                href={`/projects/${encodeURIComponent(p.project_id)}`}
                 onMouseEnter={() => prefetch(p.project_id)}
                 onFocus={() => prefetch(p.project_id)}
-                className="panel hover:border-accent/50 hover:shadow-glow transition-all block animate-fade-up"
+                className="panel hover:border-accent/50 hover:shadow-glow transition-all animate-fade-up"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-[0.7rem] uppercase tracking-[0.14em] text-muted font-bold">
                       {p.project_id}
                     </div>
-                    <h2 className="m-0 text-lg font-bold mt-1">{p.name}</h2>
+                    <h2 className="m-0 text-lg font-bold mt-1">
+                      <Link href={overviewHref} className="hover:text-accent">
+                        {p.name}
+                      </Link>
+                    </h2>
                     <div className="text-sm text-muted mt-1">
                       {p.client} · {p.site}
                     </div>
@@ -106,11 +122,53 @@ export default function ProjectsPage() {
                     tone={days !== null && days <= 14 ? "bad" : days !== null && days <= 45 ? "warn" : "neutral"}
                   />
                 </div>
-              </Link>
+
+                <ProcessHealthRow summary={processById.get(p.project_id)} />
+
+                <div className="flex items-center gap-4 mt-4 pt-4 border-t border-line">
+                  <Link
+                    href={overviewHref}
+                    className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent hover:text-accent-soft"
+                  >
+                    Overview
+                  </Link>
+                  <Link
+                    href={processHref}
+                    className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent hover:text-accent-soft"
+                  >
+                    Process
+                  </Link>
+                </div>
+              </article>
             );
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function ProcessHealthRow({ summary }: { summary?: ProjectProcessSummary }) {
+  if (!summary) return null;
+  return (
+    <div className="grid grid-cols-3 gap-3 mt-4">
+      <Stat
+        label="Blocked"
+        value={String(summary.blocked_total)}
+        tone={summary.blocked_total > 0 ? "bad" : "good"}
+      />
+      <Stat
+        label="At risk"
+        value={String(summary.at_risk_total)}
+        hint={summary.aging_total ? `${summary.aging_total} aging ≥7d` : undefined}
+        tone={summary.at_risk_total > 0 || (summary.aging_total ?? 0) > 0 ? "warn" : "neutral"}
+      />
+      <Stat
+        label="Open risks"
+        value={String(summary.open_risks)}
+        hint={summary.bottleneck_reason ?? undefined}
+        tone={summary.open_risks > 0 ? "warn" : "good"}
+      />
     </div>
   );
 }

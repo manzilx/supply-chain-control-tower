@@ -18,7 +18,7 @@ backend-only:
 	@./scripts/demo.sh --no-fe
 
 fe-only:
-	@cd frontend && npm run dev -- -p 3001
+	@cd frontend && npm run dev -- -H 0.0.0.0 -p 3001
 
 seed:
 	@./scripts/demo.sh seed

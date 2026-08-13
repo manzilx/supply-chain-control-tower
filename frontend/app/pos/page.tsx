@@ -134,13 +134,23 @@ export default function POsPage() {
                 return (
                   <tr key={p.po_no}>
                     <td className="font-semibold text-ink font-mono text-xs">
-                      {p.rfq_no ? (
-                        <Link href={`/sourcing/rfqs/${encodeURIComponent(p.rfq_no)}`} className="text-accent hover:underline">
-                          {p.po_no}
-                        </Link>
-                      ) : (
-                        p.po_no
-                      )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {p.rfq_no ? (
+                          <Link href={`/sourcing/rfqs/${encodeURIComponent(p.rfq_no)}`} className="text-accent hover:underline">
+                            {p.po_no}
+                          </Link>
+                        ) : (
+                          p.po_no
+                        )}
+                        {p.project_id ? (
+                          <Link
+                            href={`/projects/${encodeURIComponent(p.project_id)}/process?stage=po`}
+                            className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent"
+                          >
+                            Process
+                          </Link>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="text-muted">
                       <Link href={`/vendors/${encodeURIComponent(p.vendor)}`} className="font-semibold text-ink hover:underline">

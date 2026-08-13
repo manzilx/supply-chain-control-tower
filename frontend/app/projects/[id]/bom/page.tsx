@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 
@@ -9,11 +10,11 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { ProjectTabs } from "@/components/project-tabs";
 import { SpecRequestModal } from "@/components/spec-request-modal";
-import { createPr, fetchBom, fetchProject, uploadBomCsv } from "@/lib/api";
+import { createPr, fetchBom, fetchProcessMap, fetchProject, uploadBomCsv } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { daysFromNow, formatDate, formatMoney } from "@/lib/format-date";
 import { useAsync } from "@/lib/use-async";
-import type { BOMItem, BomStatus, BomUploadResult } from "@/lib/types";
+import type { BOMItem, BomStatus, BomUploadResult, ProcessStageName } from "@/lib/types";
 
 const STATUS_TONE: Record<BomStatus, string> = {
   spec_missing: "severity-high",
@@ -23,12 +24,35 @@ const STATUS_TONE: Record<BomStatus, string> = {
   delivered: "severity-low",
 };
 
+const STAGE_TONE: Record<ProcessStageName, string> = {
+  spec: "severity-high",
+  pr: "severity-medium",
+  rfq: "severity-medium",
+  quotes: "severity-medium",
+  technical_eval: "severity-medium",
+  award: "severity-low",
+  po: "severity-low",
+  shipment: "severity-medium",
+  site_grn: "severity-medium",
+  delivery: "severity-low",
+};
+
 export default function BomPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const { hasPerm } = useAuth();
   const canEditBom = hasPerm("bom", "create");
   const project = useAsync(() => fetchProject(params.id), [params.id]);
   const bom = useAsync(() => fetchBom(params.id), [params.id]);
+  const process = useAsync(() => fetchProcessMap(params.id), [params.id]);
+  const stageByBom = useMemo(() => {
+    const m = new Map<string, { stage: ProcessStageName; label: string }>();
+    for (const s of process.data?.stages ?? []) {
+      for (const item of s.items) {
+        m.set(item.bom_item_id, { stage: s.stage, label: s.label });
+      }
+    }
+    return m;
+  }, [process.data]);
   const [status, setStatus] = useState<BomStatus | "all">("all");
   const [query, setQuery] = useState("");
   const [uploadResult, setUploadResult] = useState<BomUploadResult | null>(null);
@@ -259,6 +283,7 @@ export default function BomPage({ params }: { params: { id: string } }) {
                 <th>Milestone</th>
                 <th>Spec</th>
                 <th>Status</th>
+                <th>Process</th>
                 <th></th>
               </tr>
             </thead>
@@ -266,6 +291,7 @@ export default function BomPage({ params }: { params: { id: string } }) {
               {rows.map((i) => {
                 const days = daysFromNow(i.planned_need_date);
                 const tight = days !== null && (i.long_lead_days ?? 0) > days;
+                const proc = stageByBom.get(i.bom_item_id);
                 return (
                   <tr
                     key={i.bom_item_id}
@@ -303,6 +329,19 @@ export default function BomPage({ params }: { params: { id: string } }) {
                       <span className={`badge ${STATUS_TONE[i.status]}`}>
                         {i.status.replace(/_/g, " ")}
                       </span>
+                    </td>
+                    <td>
+                      {proc ? (
+                        <Link
+                          href={`/projects/${encodeURIComponent(params.id)}/process?stage=${proc.stage}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className={`badge ${STAGE_TONE[proc.stage]} hover:opacity-80`}
+                        >
+                          {proc.label}
+                        </Link>
+                      ) : (
+                        <span className="text-muted text-xs">—</span>
+                      )}
                     </td>
                     <td>
                       <div className="flex flex-wrap gap-1 justify-end">

@@ -33,11 +33,12 @@ def headers_for_user(user_id: str) -> dict[str, str]:
 
 @pytest.fixture()
 def client() -> Generator[TestClient, None, None]:
-    from app import approvals, vendor_store
+    from app import approvals, vendor_store, risk_register
 
     vendor_store._runtime.clear()
     approvals._approvals.clear()
     approvals._counter["approval"] = 0
+    risk_register.reset()
 
     with TestClient(app) as c:
         yield c
@@ -45,6 +46,7 @@ def client() -> Generator[TestClient, None, None]:
     vendor_store._runtime.clear()
     approvals._approvals.clear()
     approvals._counter["approval"] = 0
+    risk_register.reset()
 
 
 @pytest.fixture()

@@ -240,7 +240,7 @@ export type PortfolioSummary = {
   activity: PortfolioActivity[];
 };
 
-export type SearchKind = "project" | "bom" | "vendor" | "pr" | "po";
+export type SearchKind = "project" | "bom" | "vendor" | "pr" | "po" | "process" | "risk";
 
 export type SearchIndexItem = {
   kind: SearchKind;
@@ -269,6 +269,130 @@ export type ProjectProgress = {
   bom_total: number;
   committed_value_usd: number;
   budget_value_usd: number;
+};
+
+export type ProcessStageName =
+  | "spec"
+  | "pr"
+  | "rfq"
+  | "quotes"
+  | "technical_eval"
+  | "award"
+  | "po"
+  | "shipment"
+  | "site_grn"
+  | "delivery";
+
+export type ManagedRiskStatus = "open" | "mitigating" | "accepted" | "closed";
+export type ProcessNextAction = "request_spec" | "create_pr" | "issue_rfq" | "add_quote" | "award" | "advance_shipment";
+
+export type ProcessLineRef = {
+  bom_item_id: string;
+  code: string;
+  description: string;
+  status?: string | null;
+  href: string;
+  blocked: boolean;
+  at_risk: boolean;
+  entity_id?: string | null;
+  next_action?: ProcessNextAction | null;
+  days_in_stage?: number | null;
+};
+
+export type ProcessStageBucket = {
+  stage: ProcessStageName;
+  label: string;
+  current: number;
+  done: number;
+  blocked: number;
+  at_risk: number;
+  aging?: number;
+  items: ProcessLineRef[];
+};
+
+export type ProcessBottleneck = {
+  stage: ProcessStageName;
+  count: number;
+  reason: string;
+};
+
+export type ProcessReviewAction = {
+  priority: "P1" | "P2" | "P3";
+  title: string;
+  why: string;
+  owner: string;
+  href: string;
+  process_stage?: ProcessStageName | null;
+  risk_id?: string | null;
+  next_action?: ProcessNextAction | null;
+  bom_item_id?: string | null;
+  entity_id?: string | null;
+  code?: string | null;
+};
+
+export type ManagedRisk = {
+  risk_id: string;
+  tenant_id: string;
+  project_id: string;
+  signal_key?: string | null;
+  source: "live" | "manual";
+  live: boolean;
+  title: string;
+  detail: string;
+  severity: Severity;
+  category: string;
+  process_stage?: ProcessStageName | null;
+  href?: string | null;
+  status: ManagedRiskStatus;
+  owner: string;
+  mitigation: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateManagedRiskRequest = {
+  title: string;
+  detail?: string;
+  severity?: Severity;
+  category?: string;
+  process_stage?: ProcessStageName | null;
+  owner?: string;
+  mitigation?: string;
+  href?: string | null;
+};
+
+export type PatchManagedRiskRequest = {
+  status?: ManagedRiskStatus | null;
+  owner?: string | null;
+  mitigation?: string | null;
+};
+
+export type ProjectProcessMap = {
+  project_id: string;
+  project_name: string;
+  generated_at: string;
+  bom_total: number;
+  blocked_total: number;
+  at_risk_total: number;
+  aging_total?: number;
+  open_risks: number;
+  stages: ProcessStageBucket[];
+  bottlenecks: ProcessBottleneck[];
+  risks: ManagedRisk[];
+  review_actions: ProcessReviewAction[];
+};
+
+export type ProjectProcessSummary = {
+  project_id: string;
+  project_name: string;
+  bom_total: number;
+  blocked_total: number;
+  at_risk_total: number;
+  aging_total?: number;
+  open_risks: number;
+  bottleneck_stage?: ProcessStageName | null;
+  bottleneck_reason?: string | null;
+  current_by_stage: Record<string, number>;
 };
 
 export type BOMItem = {
@@ -525,7 +649,7 @@ export type TBE = {
 export type AuditEntityKind =
   | "bom_item" | "project" | "pr" | "rfq" | "quote" | "award" | "po"
   | "shipment" | "shipment_event" | "technical_evaluation" | "sap_event"
-  | "vendor" | "spec" | "approval" | "ai_brief" | "system";
+  | "vendor" | "spec" | "approval" | "ai_brief" | "system" | "grn" | "risk";
 
 export type AuditAction =
   | "created" | "updated" | "deleted"
@@ -891,6 +1015,7 @@ export type Shipment = {
   bottleneck?: string | null;
   slack_days?: number | null;
   events: ShipmentEvent[];
+  project_id?: string | null;
 };
 
 export type LogisticsSummary = {
@@ -1024,7 +1149,8 @@ export type WeeklyCategory =
   | "vendor_risk"
   | "logistics"
   | "commercial"
-  | "planning";
+  | "planning"
+  | "process";
 
 export type KpiSnapshot = {
   label: string;

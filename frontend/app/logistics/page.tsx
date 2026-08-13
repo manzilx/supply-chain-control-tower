@@ -1,12 +1,14 @@
 "use client";
 
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { AdvanceShipmentForm, SHIPMENT_STAGE_ORDER } from "@/components/advance-shipment-form";
 import { AnimatedKpiTile, Donut, MotionPanel, StageFunnel } from "@/components/charts";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
-import { addShipmentEvent, fetchLogisticsQueue, fetchModeRecommendation } from "@/lib/api";
-import { useAuth } from "@/lib/auth-context";
+import { fetchLogisticsQueue, fetchModeRecommendation } from "@/lib/api";
 import { formatDate, formatMoney } from "@/lib/format-date";
 import { useToast } from "@/lib/toast-context";
 import { useAsync } from "@/lib/use-async";
@@ -37,18 +39,22 @@ const MODE_LABEL: Record<FreightMode, string> = {
 };
 
 export default function LogisticsPage() {
+  const searchParams = useSearchParams();
+  const toast = useToast();
   const queue = useAsync(fetchLogisticsQueue, []);
   const [stage, setStage] = useState<ShipmentStage | "all">("all");
   const [bottleneckOnly, setBottleneckOnly] = useState(false);
   const [modeReco, setModeReco] = useState<ModeRecommendation | null>(null);
   const [loadingReco, setLoadingReco] = useState<string | null>(null);
+  const poFilter = searchParams.get("po");
 
   const rows = useMemo(() => {
     const items = queue.data?.shipments ?? [];
     return items
+      .filter((s) => !poFilter || s.po_ref === poFilter)
       .filter((s) => stage === "all" || s.current_stage === stage)
       .filter((s) => !bottleneckOnly || !!s.bottleneck);
-  }, [queue.data, stage, bottleneckOnly]);
+  }, [queue.data, stage, bottleneckOnly, poFilter]);
 
   async function showReco(s: Shipment) {
     setLoadingReco(s.po_ref);
@@ -101,10 +107,7 @@ export default function LogisticsPage() {
                     (queue.data?.shipments || []).forEach((s) => {
                       counts[s.current_stage] = (counts[s.current_stage] || 0) + 1;
                     });
-                    const order: ShipmentStage[] = [
-                      "manufacturing", "ready_to_dispatch", "dispatched",
-                      "in_transit", "at_port", "at_customs", "last_mile", "delivered",
-                    ];
+                    const order = SHIPMENT_STAGE_ORDER;
                     return order
                       .map((s) => ({ name: s.replace(/_/g, " "), value: counts[s] || 0 }))
                       .filter((d) => d.value > 0);
@@ -167,6 +170,14 @@ export default function LogisticsPage() {
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-xs text-ink font-semibold">{s.po_ref}</span>
+                        {s.project_id ? (
+                          <Link
+                            href={`/projects/${encodeURIComponent(s.project_id)}/process?stage=shipment`}
+                            className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent"
+                          >
+                            Process
+                          </Link>
+                        ) : null}
                         <span className={`badge ${STAGE_TONE[s.current_stage]}`}>
                           {s.current_stage.replace(/_/g, " ")}
                         </span>
@@ -208,7 +219,13 @@ export default function LogisticsPage() {
                     </div>
                   ) : null}
 
-                  <ShipmentAdvanceControls shipment={s} onAdvanced={() => queue.reload()} />
+                  <AdvanceShipmentForm
+                    shipment={s}
+                    onAdvanced={(nextStage) => {
+                      toast.success(`Advanced to ${nextStage.replace(/_/g, " ")}`);
+                      queue.reload();
+                    }}
+                  />
 
                   {s.events.length > 0 ? (
                     <details className="panel-sm">
@@ -260,118 +277,11 @@ export default function LogisticsPage() {
   );
 }
 
-const STAGE_ORDER: ShipmentStage[] = [
-  "manufacturing",
-  "ready_to_dispatch",
-  "dispatched",
-  "in_transit",
-  "at_port",
-  "at_customs",
-  "last_mile",
-  "delivered",
-];
-
-function formatStage(stage: ShipmentStage): string {
-  return stage.replace(/_/g, " ");
-}
-
-function nextStage(current: ShipmentStage): ShipmentStage | null {
-  const idx = STAGE_ORDER.indexOf(current);
-  if (idx < 0 || idx >= STAGE_ORDER.length - 1) return null;
-  return STAGE_ORDER[idx + 1];
-}
-
-function ShipmentAdvanceControls({
-  shipment,
-  onAdvanced,
-}: {
-  shipment: Shipment;
-  onAdvanced: () => void;
-}) {
-  const { hasPerm } = useAuth();
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-  const [location, setLocation] = useState("");
-  const [note, setNote] = useState("");
-
-  const canAdvance =
-    hasPerm("shipment_event", "create") && shipment.current_stage !== "delivered";
-  if (!canAdvance) return null;
-
-  const next = nextStage(shipment.current_stage);
-  if (!next) return null;
-
-  const showClearBottleneck =
-    !!shipment.bottleneck &&
-    (shipment.current_stage === "at_port" || shipment.current_stage === "at_customs");
-
-  async function advance(stage: ShipmentStage, defaultNote?: string) {
-    setBusy(true);
-    try {
-      await addShipmentEvent(shipment.po_ref, {
-        stage,
-        location: location.trim() || null,
-        note: note.trim() || defaultNote || null,
-      });
-      toast.success(`Advanced to ${formatStage(stage)}`);
-      setLocation("");
-      setNote("");
-      onAdvanced();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not advance stage");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="panel-sm space-y-2">
-      <div className="text-[0.68rem] uppercase tracking-[0.12em] text-muted font-bold">
-        Advance shipment
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <input
-          placeholder="Location (optional)…"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-          className="text-sm"
-          disabled={busy}
-        />
-        <input
-          placeholder="Note (optional)…"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          className="text-sm"
-          disabled={busy}
-        />
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <button
-          className="btn btn-primary text-xs"
-          disabled={busy}
-          onClick={() => void advance(next)}
-        >
-          {busy ? "…" : `Advance to ${formatStage(next)}`}
-        </button>
-        {showClearBottleneck ? (
-          <button
-            className="btn btn-secondary text-xs"
-            disabled={busy}
-            onClick={() => void advance(next, "Bottleneck cleared")}
-          >
-            Clear bottleneck
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 function StageTrack({ current }: { current: ShipmentStage }) {
-  const idx = STAGE_ORDER.indexOf(current);
+  const idx = SHIPMENT_STAGE_ORDER.indexOf(current);
   return (
     <div className="flex items-center gap-1">
-      {STAGE_ORDER.map((s, i) => {
+      {SHIPMENT_STAGE_ORDER.map((s, i) => {
         const active = i <= idx;
         const isCurrent = i === idx;
         return (

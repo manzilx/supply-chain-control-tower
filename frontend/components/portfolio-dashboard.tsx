@@ -3,13 +3,14 @@
 import Link from "next/link";
 
 import { Skeleton } from "@/components/skeleton";
-import { fetchPortfolioSummary } from "@/lib/api";
+import { fetchPortfolioSummary, fetchProcessSummaries } from "@/lib/api";
 import { useAsync } from "@/lib/use-async";
 import type {
   PortfolioActivity,
   PortfolioCompletionBucket,
   PortfolioScheduleItem,
   PortfolioSummary,
+  ProjectProcessSummary,
 } from "@/lib/types";
 
 function moneyShort(v: number): string {
@@ -219,6 +220,7 @@ function ActivityRow({ ev }: { ev: PortfolioActivity }) {
 
 export function PortfolioDashboard() {
   const { data, loading, error } = useAsync(fetchPortfolioSummary, []);
+  const process = useAsync(fetchProcessSummaries, []);
 
   if (loading) return <DashboardSkeleton />;
   if (error)
@@ -228,6 +230,7 @@ export function PortfolioDashboard() {
   return (
     <div className="space-y-5">
       <Hero summary={data} />
+      <ProcessHealthStrip summaries={process.data} loading={process.loading} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <section className="panel animate-fade-up">
@@ -285,6 +288,93 @@ export function PortfolioDashboard() {
         </section>
       </div>
     </div>
+  );
+}
+
+function ProcessHealthStrip({
+  summaries,
+  loading,
+}: {
+  summaries: ProjectProcessSummary[] | null;
+  loading: boolean;
+}) {
+  if (loading && !summaries) {
+    return (
+      <section className="panel animate-fade-up">
+        <Skeleton height={88} />
+      </section>
+    );
+  }
+  const rows = summaries ?? [];
+  const flagged = rows.filter((s) => s.blocked_total > 0 || s.open_risks > 0 || (s.aging_total ?? 0) > 0);
+  const blocked = rows.reduce((n, s) => n + s.blocked_total, 0);
+  const openRisks = rows.reduce((n, s) => n + s.open_risks, 0);
+  const aging = rows.reduce((n, s) => n + (s.aging_total ?? 0), 0);
+
+  return (
+    <section className="panel animate-fade-up">
+      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+        <div>
+          <div className="text-[0.7rem] uppercase tracking-[0.14em] text-muted font-bold">
+            Process health
+          </div>
+          <h3 className="m-0 text-base font-bold">Blocked lines, aging, and open risks</h3>
+        </div>
+        <div className="flex items-center gap-4">
+          <Link href="/risks" className="text-xs text-accent hover:text-accent-strong">
+            Risk register →
+          </Link>
+          <Link href="/projects" className="text-xs text-accent hover:text-accent-strong">
+            All projects →
+          </Link>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2 mb-4">
+        <span className={`badge ${blocked ? "severity-high" : "severity-low"}`}>
+          {blocked} blocked
+        </span>
+        <span className={`badge ${aging ? "severity-medium" : "severity-low"}`}>
+          {aging} aging
+        </span>
+        <span className={`badge ${openRisks ? "severity-medium" : "severity-low"}`}>
+          {openRisks} open risks
+        </span>
+      </div>
+      {flagged.length === 0 ? (
+        <div className="text-sm text-muted">No blocked, aging, or open-risk projects in the portfolio.</div>
+      ) : (
+        <div className="space-y-1">
+          {flagged.map((s) => (
+            <Link
+              key={s.project_id}
+              href={`/projects/${encodeURIComponent(s.project_id)}/process`}
+              className="flex items-center justify-between gap-3 py-2.5 px-3 -mx-3 rounded-lg hover:bg-white/[0.03] transition-colors"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="text-[0.6rem] uppercase tracking-[0.1em] text-muted font-bold">
+                  {s.project_id}
+                </div>
+                <div className="font-bold text-ink text-sm truncate">{s.project_name}</div>
+                {s.bottleneck_reason ? (
+                  <div className="text-xs text-muted truncate">{s.bottleneck_reason}</div>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {s.blocked_total > 0 ? (
+                  <span className="badge severity-high">{s.blocked_total} blocked</span>
+                ) : null}
+                {(s.aging_total ?? 0) > 0 ? (
+                  <span className="badge severity-medium">{s.aging_total} aging</span>
+                ) : null}
+                {s.open_risks > 0 ? (
+                  <span className="badge severity-medium">{s.open_risks} risks</span>
+                ) : null}
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

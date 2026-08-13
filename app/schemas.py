@@ -336,7 +336,7 @@ class PortfolioActivity(BaseModel):
 
 
 class SearchIndexItem(BaseModel):
-    kind: Literal["project", "bom", "vendor", "pr", "po"]
+    kind: Literal["project", "bom", "vendor", "pr", "po", "process", "risk"]
     id: str
     title: str
     subtitle: Optional[str] = None
@@ -574,7 +574,7 @@ class SetWeightsRequest(BaseModel):
 AuditEntityKind = Literal[
     "bom_item", "project", "pr", "rfq", "quote", "award", "po",
     "shipment", "shipment_event", "technical_evaluation", "sap_event",
-    "vendor", "spec", "approval", "ai_brief", "system", "grn",
+    "vendor", "spec", "approval", "ai_brief", "system", "grn", "risk",
 ]
 
 AuditAction = Literal[
@@ -683,6 +683,126 @@ class TraceabilityChain(BaseModel):
     stages: List[TraceStage]
     generated_at: datetime
     events_count: int
+
+
+# --- Per-project SCM process map + risk register -----------------------------
+
+ProcessStageName = Literal[
+    "spec", "pr", "rfq", "quotes", "technical_eval",
+    "award", "po", "shipment", "site_grn", "delivery",
+]
+ManagedRiskStatus = Literal["open", "mitigating", "accepted", "closed"]
+ManagedRiskSource = Literal["live", "manual"]
+ProcessNextAction = Literal["request_spec", "create_pr", "issue_rfq", "add_quote", "award", "advance_shipment"]
+
+
+class ProcessLineRef(BaseModel):
+    bom_item_id: str
+    code: str
+    description: str
+    status: Optional[str] = None
+    href: str
+    blocked: bool = False
+    at_risk: bool = False
+    entity_id: Optional[str] = None
+    next_action: Optional[ProcessNextAction] = None
+    days_in_stage: Optional[int] = None
+
+
+class ProcessStageBucket(BaseModel):
+    stage: ProcessStageName
+    label: str
+    current: int
+    done: int
+    blocked: int
+    at_risk: int
+    aging: int = 0
+    items: List[ProcessLineRef] = Field(default_factory=list)
+
+
+class ProcessBottleneck(BaseModel):
+    stage: ProcessStageName
+    count: int
+    reason: str
+
+
+class ProcessReviewAction(BaseModel):
+    priority: Literal["P1", "P2", "P3"]
+    title: str
+    why: str
+    owner: str
+    href: str
+    process_stage: Optional[ProcessStageName] = None
+    risk_id: Optional[str] = None
+    next_action: Optional[ProcessNextAction] = None
+    bom_item_id: Optional[str] = None
+    entity_id: Optional[str] = None
+    code: Optional[str] = None
+
+
+class ManagedRisk(BaseModel):
+    risk_id: str
+    tenant_id: str
+    project_id: str
+    signal_key: Optional[str] = None
+    source: ManagedRiskSource = "live"
+    live: bool = True
+    title: str
+    detail: str
+    severity: Severity
+    category: str
+    process_stage: Optional[ProcessStageName] = None
+    href: Optional[str] = None
+    status: ManagedRiskStatus = "open"
+    owner: str = ""
+    mitigation: str = ""
+    created_at: datetime
+    updated_at: datetime
+
+
+class CreateManagedRiskRequest(BaseModel):
+    title: str
+    detail: str = ""
+    severity: Severity = "medium"
+    category: str = "process"
+    process_stage: Optional[ProcessStageName] = None
+    owner: str = ""
+    mitigation: str = ""
+    href: Optional[str] = None
+
+
+class PatchManagedRiskRequest(BaseModel):
+    status: Optional[ManagedRiskStatus] = None
+    owner: Optional[str] = None
+    mitigation: Optional[str] = None
+
+
+class ProjectProcessMap(BaseModel):
+    project_id: str
+    project_name: str
+    generated_at: datetime
+    bom_total: int
+    blocked_total: int
+    at_risk_total: int
+    aging_total: int = 0
+    open_risks: int
+    stages: List[ProcessStageBucket]
+    bottlenecks: List[ProcessBottleneck] = Field(default_factory=list)
+    risks: List[ManagedRisk] = Field(default_factory=list)
+    review_actions: List[ProcessReviewAction] = Field(default_factory=list)
+
+
+class ProjectProcessSummary(BaseModel):
+    project_id: str
+    project_name: str
+    bom_total: int
+    blocked_total: int
+    at_risk_total: int
+    aging_total: int = 0
+    open_risks: int
+    bottleneck_stage: Optional[ProcessStageName] = None
+    bottleneck_reason: Optional[str] = None
+    current_by_stage: Dict[str, int] = Field(default_factory=dict)
 
 
 class Award(BaseModel):
@@ -1005,6 +1125,7 @@ class Shipment(BaseModel):
     bottleneck: Optional[str] = None
     slack_days: Optional[int] = None
     events: List[ShipmentEvent]
+    project_id: Optional[str] = None
 
 
 class LogisticsSummary(BaseModel):
@@ -1135,7 +1256,7 @@ AgentPersona = Literal[
     "sourcing", "expediting", "vendor_risk", "logistics", "commercial", "planning", "reporting", "general"
 ]
 WeeklyCategory = Literal[
-    "sourcing", "expediting", "vendor_risk", "logistics", "commercial", "planning"
+    "sourcing", "expediting", "vendor_risk", "logistics", "commercial", "planning", "process"
 ]
 
 

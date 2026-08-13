@@ -229,6 +229,49 @@ def _summarize_plan(plan: Any) -> str:
     )
 
 
+def _tool_process_map(args: dict) -> Any:
+    from .process_map import build_process_map
+    tid = _tenant_id() or ""
+    pid = args.get("project_id", "")
+    if not pid:
+        projects = list_projects(tenant_id=tid)
+        if projects:
+            pid = projects[0].project_id
+    return build_process_map(pid, tenant_id=tid)
+
+
+def _summarize_process_map(mmap: Any) -> str:
+    if not mmap:
+        return "Project not found."
+    stuck = ", ".join(
+        f"{b.current} in {b.label}" for b in mmap.stages if b.current
+    ) or "all delivered"
+    return (
+        f"{mmap.project_name}: {mmap.bom_total} BOM lines · {stuck}; "
+        f"{mmap.blocked_total} blocked, {mmap.aging_total} aging, {mmap.open_risks} open risks, "
+        f"{len(mmap.review_actions)} review action(s)."
+    )
+
+
+def _tool_process_summaries(_: dict) -> Any:
+    from .process_map import list_process_summaries
+    return list_process_summaries(_tenant_id() or "")
+
+
+def _summarize_process_summaries(rows: List[Any]) -> str:
+    if not rows:
+        return "No projects."
+    flagged = [s for s in rows if s.blocked_total or s.open_risks or s.aging_total]
+    blocked = sum(s.blocked_total for s in rows)
+    open_risks = sum(s.open_risks for s in rows)
+    aging = sum(s.aging_total for s in rows)
+    names = ", ".join(s.project_id for s in flagged[:5]) or "none flagged"
+    return (
+        f"{len(rows)} projects · {blocked} blocked lines · {aging} aging · {open_risks} open risks · "
+        f"attention: {names}."
+    )
+
+
 def _tool_projects(_: dict) -> Any:
     return list_projects(tenant_id=_tenant_id())
 
@@ -454,6 +497,26 @@ TOOLS: Dict[str, Tool] = {
         persona="planning",
         run=_tool_procurement_plan,
         summarize=_summarize_plan,
+    ),
+    "project_process_map": Tool(
+        name="project_process_map",
+        description="Per-project SCM process map: BOM lines by stage (spec→delivery) plus open risks.",
+        input_schema={
+            "type": "object",
+            "properties": {"project_id": {"type": "string"}},
+            "required": [],
+        },
+        persona="planning",
+        run=_tool_process_map,
+        summarize=_summarize_process_map,
+    ),
+    "portfolio_process_summary": Tool(
+        name="portfolio_process_summary",
+        description="Portfolio SCM process health: blocked lines, aging, bottlenecks, and open risks per project.",
+        input_schema={"type": "object", "properties": {}, "required": []},
+        persona="planning",
+        run=_tool_process_summaries,
+        summarize=_summarize_process_summaries,
     ),
     "list_projects": Tool(
         name="list_projects",

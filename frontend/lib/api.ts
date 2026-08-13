@@ -47,6 +47,11 @@ import type {
   IngestCommitReply,
   IngestPreviewReply,
   SearchIndex,
+  CreateManagedRiskRequest,
+  ManagedRisk,
+  PatchManagedRiskRequest,
+  ProjectProcessMap,
+  ProjectProcessSummary,
   SiteStoreOut,
   StockBalance,
   SupplierRecord,
@@ -67,9 +72,9 @@ import type {
 } from "@/lib/types";
 import { getTenantOverride, getToken, setToken } from "@/lib/token-store";
 
-// Empty string = relative URLs (prod behind reverse proxy). Only fall back to
-// the dev backend when NEXT_PUBLIC_API_BASE is genuinely unset (next dev).
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8010";
+// Empty string = same-origin `/api` (prod reverse proxy, or next dev rewrite).
+// Set NEXT_PUBLIC_API_BASE to talk to the backend directly, e.g. http://127.0.0.1:8010.
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
 export class ApiError extends Error {
   status: number;
@@ -207,6 +212,14 @@ export function fetchAlerts(): Promise<AlertFeed> {
   return getJson<AlertFeed>("/api/alerts");
 }
 
+export function fetchRiskRegister(): Promise<ManagedRisk[]> {
+  return getJson<ManagedRisk[]>("/api/risks/register");
+}
+
+export function fetchProcessSummaries(): Promise<ProjectProcessSummary[]> {
+  return getJson<ProjectProcessSummary[]>("/api/projects/process-summary");
+}
+
 export function fetchProjectsProgress(): Promise<ProjectProgress[]> {
   return getJson<ProjectProgress[]>("/api/projects/progress");
 }
@@ -226,6 +239,34 @@ export function fetchBom(id: string): Promise<BOMItem[]> {
 export function fetchProcurementPlan(id: string): Promise<ProcurementPlan> {
   return getJson<ProcurementPlan>(
     `/api/projects/${encodeURIComponent(id)}/procurement-plan`,
+  );
+}
+
+export function fetchProcessMap(id: string): Promise<ProjectProcessMap> {
+  return getJson<ProjectProcessMap>(
+    `/api/projects/${encodeURIComponent(id)}/process-map`,
+  );
+}
+
+export function fetchProjectRisks(id: string): Promise<ManagedRisk[]> {
+  return getJson<ManagedRisk[]>(`/api/projects/${encodeURIComponent(id)}/risks`);
+}
+
+export function createProjectRisk(
+  id: string,
+  body: CreateManagedRiskRequest,
+): Promise<ManagedRisk> {
+  return postJson<ManagedRisk>(`/api/projects/${encodeURIComponent(id)}/risks`, body);
+}
+
+export function patchProjectRisk(
+  projectId: string,
+  riskId: string,
+  body: PatchManagedRiskRequest,
+): Promise<ManagedRisk> {
+  return patchJson<ManagedRisk>(
+    `/api/projects/${encodeURIComponent(projectId)}/risks/${encodeURIComponent(riskId)}`,
+    body,
   );
 }
 

@@ -63,6 +63,7 @@ _PERMS: dict[str, Set[str]] = {
         "followup:create",
         "shipment_event:create",
         "bom:create",
+        "risk:update",
         "vendor:*",
         "ingest:*",
         "grn:*",
@@ -78,6 +79,7 @@ _PERMS: dict[str, Set[str]] = {
         "award:create",
         "followup:create",
         "bom:create",
+        "risk:update",
         "vendor:create",
         "ingest:preview",
         "ingest:commit",
@@ -86,6 +88,7 @@ _PERMS: dict[str, Set[str]] = {
         "*:read",
         "followup:create",
         "shipment_event:create",
+        "risk:update",
     },
     "viewer": {
         "*:read",
