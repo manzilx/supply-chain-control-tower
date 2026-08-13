@@ -284,7 +284,7 @@ export type ProcessStageName =
   | "delivery";
 
 export type ManagedRiskStatus = "open" | "mitigating" | "accepted" | "closed";
-export type ProcessNextAction = "request_spec" | "create_pr" | "issue_rfq";
+export type ProcessNextAction = "request_spec" | "create_pr" | "issue_rfq" | "add_quote";
 
 export type ProcessLineRef = {
   bom_item_id: string;

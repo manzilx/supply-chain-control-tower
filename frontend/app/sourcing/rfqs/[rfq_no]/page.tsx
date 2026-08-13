@@ -4,13 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 
+import { AddQuoteForm } from "@/components/add-quote-form";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { RFQStatusBadge } from "@/components/sourcing-badges";
 import { TbePanel } from "@/components/tbe-panel";
 import { EntityTrail } from "@/components/traceability";
 import {
-  addQuote,
   awardRfq,
   fetchQuoteComparison,
   fetchQuotes,
@@ -20,10 +20,8 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { formatDate, formatMoney } from "@/lib/format-date";
 import { useToast } from "@/lib/toast-context";
-import type { CombinedEvaluation, CreateQuoteRequest, Incoterm, TBE } from "@/lib/types";
+import type { CombinedEvaluation, TBE } from "@/lib/types";
 import { useAsync } from "@/lib/use-async";
-
-const INCOTERMS: Incoterm[] = ["EXW", "FCA", "FOB", "CIF", "CIP", "DAP", "DDP"];
 
 type TbeAwardState =
   | { mode: "tbe"; target: CombinedEvaluation; rationale: string | null }
@@ -73,56 +71,9 @@ export default function RFQPage({ params }: { params: { rfq_no: string } }) {
   const tbeAward = useMemo(() => resolveTbeAward(tbe.data), [tbe.data]);
   const commercialWinner = comparison.data?.evaluations[0] ?? null;
 
-  const [quoteDraft, setQuoteDraft] = useState<Partial<CreateQuoteRequest>>({
-    incoterm: "CIP",
-    validity_days: 30,
-  });
-  const [selectedVendor, setSelectedVendor] = useState<string>("");
-  const [savingQuote, setSavingQuote] = useState(false);
-  const [quoteErr, setQuoteErr] = useState<string | null>(null);
-
   const [awardRationale, setAwardRationale] = useState("");
   const [awarding, setAwarding] = useState(false);
   const [awardErr, setAwardErr] = useState<string | null>(null);
-
-  async function handleAddQuote(e: React.FormEvent) {
-    e.preventDefault();
-    if (!quoteDraft.vendor && !selectedVendor) {
-      setQuoteErr("Pick a vendor.");
-      return;
-    }
-    if (!quoteDraft.unit_price_usd || !quoteDraft.lead_time_days) {
-      setQuoteErr("Unit price and lead time are required.");
-      return;
-    }
-    setSavingQuote(true);
-    setQuoteErr(null);
-    try {
-      const reply = await addQuote(params.rfq_no, {
-        vendor: (quoteDraft.vendor || selectedVendor) as string,
-        unit_price_usd: Number(quoteDraft.unit_price_usd),
-        lead_time_days: Number(quoteDraft.lead_time_days),
-        incoterm: quoteDraft.incoterm ?? "CIP",
-        validity_days: Number(quoteDraft.validity_days ?? 30),
-        notes: quoteDraft.notes ?? null,
-      });
-      setQuoteDraft({ incoterm: "CIP", validity_days: 30 });
-      setSelectedVendor("");
-      if (reply.status === "pending_approval") {
-        toast.warn("Quote exceeds budget — sent for approval", { label: "View approvals", href: "/approvals" });
-      } else {
-        toast.success("Quote recorded");
-      }
-      quotes.reload();
-      comparison.reload();
-      tbe.reload();
-      rfq.reload();
-    } catch (err) {
-      setQuoteErr(err instanceof Error ? err.message : "Failed to save quote");
-    } finally {
-      setSavingQuote(false);
-    }
-  }
 
   async function handleAward(
     quoteId: string,
@@ -208,9 +159,19 @@ export default function RFQPage({ params }: { params: { rfq_no: string } }) {
 
       <section className="panel grid grid-cols-2 md:grid-cols-4 gap-4">
         <Field label="PR">
-          <Link href={`/sourcing/prs/${data.pr_no}`} className="text-accent hover:underline font-mono text-xs">
-            {data.pr_no}
-          </Link>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link href={`/sourcing/prs/${data.pr_no}`} className="text-accent hover:underline font-mono text-xs">
+              {data.pr_no}
+            </Link>
+            {data.project_id ? (
+              <Link
+                href={`/projects/${encodeURIComponent(data.project_id)}/process?stage=rfq`}
+                className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent"
+              >
+                Process
+              </Link>
+            ) : null}
+          </div>
         </Field>
         <Field label="Quantity">
           <span>{data.quantity} {data.uom}</span>
@@ -283,68 +244,21 @@ export default function RFQPage({ params }: { params: { rfq_no: string } }) {
       {awardable ? (
         <section className="panel space-y-4">
           <h2 className="m-0 text-lg font-bold">Add a Quote</h2>
-          <form onSubmit={handleAddQuote} className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Field label="Vendor">
-              <select
-                value={selectedVendor || quoteDraft.vendor || ""}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setSelectedVendor(v);
-                  setQuoteDraft((d) => ({ ...d, vendor: v }));
-                }}
-              >
-                <option value="">Select vendor...</option>
-                {data.vendors.map((v) => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Unit Price (USD)">
-              <input
-                type="number"
-                step="0.01"
-                value={quoteDraft.unit_price_usd ?? ""}
-                onChange={(e) => setQuoteDraft((d) => ({ ...d, unit_price_usd: Number(e.target.value) }))}
-              />
-            </Field>
-            <Field label="Lead Time (days)">
-              <input
-                type="number"
-                min={1}
-                value={quoteDraft.lead_time_days ?? ""}
-                onChange={(e) => setQuoteDraft((d) => ({ ...d, lead_time_days: Number(e.target.value) }))}
-              />
-            </Field>
-            <Field label="Incoterm">
-              <select
-                value={quoteDraft.incoterm ?? "CIP"}
-                onChange={(e) => setQuoteDraft((d) => ({ ...d, incoterm: e.target.value as Incoterm }))}
-              >
-                {INCOTERMS.map((i) => <option key={i} value={i}>{i}</option>)}
-              </select>
-            </Field>
-            <Field label="Validity (days)">
-              <input
-                type="number"
-                min={1}
-                value={quoteDraft.validity_days ?? 30}
-                onChange={(e) => setQuoteDraft((d) => ({ ...d, validity_days: Number(e.target.value) }))}
-              />
-            </Field>
-            <Field label="Notes">
-              <input
-                value={quoteDraft.notes ?? ""}
-                onChange={(e) => setQuoteDraft((d) => ({ ...d, notes: e.target.value }))}
-                placeholder="Optional"
-              />
-            </Field>
-            <div className="md:col-span-3 flex items-center gap-3">
-              <button type="submit" className="btn btn-primary" disabled={savingQuote}>
-                {savingQuote ? "Saving..." : "Add Quote"}
-              </button>
-              {quoteErr ? <span className="text-[#ff9d9d] text-sm">{quoteErr}</span> : null}
-            </div>
-          </form>
+          <AddQuoteForm
+            rfqNo={params.rfq_no}
+            vendors={data.vendors}
+            onSaved={(reply) => {
+              if (reply.status === "pending_approval") {
+                toast.warn("Quote exceeds budget — sent for approval", { label: "View approvals", href: "/approvals" });
+              } else {
+                toast.success("Quote recorded");
+              }
+              quotes.reload();
+              comparison.reload();
+              tbe.reload();
+              rfq.reload();
+            }}
+          />
         </section>
       ) : null}
 

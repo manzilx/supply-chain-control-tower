@@ -9,6 +9,7 @@ import { KpiTile } from "@/components/kpi-tile";
 import { PageHeader } from "@/components/page-header";
 import { ProjectTabs } from "@/components/project-tabs";
 import { SpecRequestModal } from "@/components/spec-request-modal";
+import { AddQuoteModal } from "@/components/add-quote-form";
 import { IssueRfqModal } from "@/components/issue-rfq-form";
 import {
   createPr,
@@ -52,6 +53,7 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
   const canUpdate = hasPerm("risk", "update");
   const canCreatePr = hasPerm("pr", "create");
   const canIssueRfq = hasPerm("rfq", "create");
+  const canAddQuote = hasPerm("quote", "create");
   const map = useAsync(() => fetchProcessMap(params.id), [params.id]);
   const qStage = searchParams.get("stage");
   const queryStage = STAGES.includes(qStage as ProcessStageName)
@@ -65,6 +67,7 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
   const [creatingPrFor, setCreatingPrFor] = useState<string | null>(null);
   const [specRequestFor, setSpecRequestFor] = useState<ProcessLineRef | null>(null);
   const [issueRfqFor, setIssueRfqFor] = useState<ProcessLineRef | null>(null);
+  const [addQuoteFor, setAddQuoteFor] = useState<ProcessLineRef | null>(null);
 
   const data = map.data;
   const selected: ProcessStageBucket | undefined = data?.stages.find(
@@ -263,6 +266,15 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
                               Issue RFQ
                             </button>
                           ) : null}
+                          {item.next_action === "add_quote" && canAddQuote && item.entity_id ? (
+                            <button
+                              type="button"
+                              className="btn btn-secondary text-xs py-1"
+                              onClick={() => setAddQuoteFor(item)}
+                            >
+                              Add quote
+                            </button>
+                          ) : null}
                           <Link href={item.href} className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent self-center">
                             Open
                           </Link>
@@ -306,6 +318,17 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
           code={issueRfqFor.code}
           onClose={() => setIssueRfqFor(null)}
           onIssued={(rfqNo) => router.push(`/sourcing/rfqs/${rfqNo}`)}
+        />
+      ) : null}
+      {addQuoteFor?.entity_id ? (
+        <AddQuoteModal
+          rfqNo={addQuoteFor.entity_id}
+          code={addQuoteFor.code}
+          onClose={() => setAddQuoteFor(null)}
+          onSaved={() => {
+            setAddQuoteFor(null);
+            map.reload();
+          }}
         />
       ) : null}
     </div>

@@ -233,7 +233,29 @@ def test_create_pr_sets_issue_rfq_action(
         if i["bom_item_id"] == item["bom_item_id"]
     )
     assert moved[0] == "rfq"
-    assert moved[1]["next_action"] is None
+    assert moved[1]["next_action"] == "add_quote"
+    assert moved[1]["entity_id"] == rfq.json()["rfq_no"]
+
+    quoted = client.post(
+        f"/api/rfqs/{rfq.json()['rfq_no']}/quotes",
+        headers=auth_headers,
+        json={
+            "vendor": "Process Map Vendor",
+            "unit_price_usd": 1250,
+            "lead_time_days": 28,
+        },
+    )
+    assert quoted.status_code == 200
+    fourth = client.get(f"/api/projects/{PROJECT}/process-map", headers=auth_headers)
+    assert fourth.status_code == 200
+    after_quote = next(
+        (s["stage"], i)
+        for s in fourth.json()["stages"]
+        for i in s["items"]
+        if i["bom_item_id"] == item["bom_item_id"]
+    )
+    assert after_quote[0] == "quotes"
+    assert after_quote[1]["next_action"] == "add_quote"
 
 
 def test_weekly_plan_includes_process_review(
