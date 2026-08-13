@@ -56,11 +56,13 @@ print(
 
 # 3) Serve.
 if __name__ == "__main__":
+    import os
+
     import uvicorn
 
     uvicorn.run(
         "app.main:app",
-        host="127.0.0.1",
-        port=8010,
+        host=os.environ.get("BACKEND_HOST", "0.0.0.0"),
+        port=int(os.environ.get("BACKEND_PORT", "8010")),
         log_level="warning",
     )

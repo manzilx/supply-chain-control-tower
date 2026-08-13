@@ -72,9 +72,9 @@ import type {
 } from "@/lib/types";
 import { getTenantOverride, getToken, setToken } from "@/lib/token-store";
 
-// Empty string = relative URLs (prod behind reverse proxy). Only fall back to
-// the dev backend when NEXT_PUBLIC_API_BASE is genuinely unset (next dev).
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8010";
+// Empty string = same-origin `/api` (prod reverse proxy, or next dev rewrite).
+// Set NEXT_PUBLIC_API_BASE to talk to the backend directly, e.g. http://127.0.0.1:8010.
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
 export class ApiError extends Error {
   status: number;

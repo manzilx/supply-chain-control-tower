@@ -115,7 +115,9 @@ start_frontend() {
   )
   (
     cd "$ROOT/frontend"
-    nohup npm run dev -- -p "$FRONTEND_PORT" \
+    # Same-origin /api via next.config rewrites — browser only needs :3001.
+    NEXT_PUBLIC_API_BASE="${NEXT_PUBLIC_API_BASE-}" \
+    nohup npm run dev -- -H 0.0.0.0 -p "$FRONTEND_PORT" \
       > "$LOG_DIR/frontend.log" 2>&1 &
     echo $! > "$PID_DIR/frontend.pid"
   )
