@@ -9,6 +9,7 @@ import { KpiTile } from "@/components/kpi-tile";
 import { PageHeader } from "@/components/page-header";
 import { ProjectTabs } from "@/components/project-tabs";
 import { SpecRequestModal } from "@/components/spec-request-modal";
+import { IssueRfqModal } from "@/components/issue-rfq-form";
 import {
   createPr,
   createProjectRisk,
@@ -50,6 +51,7 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
   const { hasPerm } = useAuth();
   const canUpdate = hasPerm("risk", "update");
   const canCreatePr = hasPerm("pr", "create");
+  const canIssueRfq = hasPerm("rfq", "create");
   const map = useAsync(() => fetchProcessMap(params.id), [params.id]);
   const qStage = searchParams.get("stage");
   const queryStage = STAGES.includes(qStage as ProcessStageName)
@@ -62,6 +64,7 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
   const [error, setError] = useState<string | null>(null);
   const [creatingPrFor, setCreatingPrFor] = useState<string | null>(null);
   const [specRequestFor, setSpecRequestFor] = useState<ProcessLineRef | null>(null);
+  const [issueRfqFor, setIssueRfqFor] = useState<ProcessLineRef | null>(null);
 
   const data = map.data;
   const selected: ProcessStageBucket | undefined = data?.stages.find(
@@ -251,6 +254,15 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
                               {creatingPrFor === item.bom_item_id ? "…" : "Create PR"}
                             </button>
                           ) : null}
+                          {item.next_action === "issue_rfq" && canIssueRfq && item.entity_id ? (
+                            <button
+                              type="button"
+                              className="btn btn-secondary text-xs py-1"
+                              onClick={() => setIssueRfqFor(item)}
+                            >
+                              Issue RFQ
+                            </button>
+                          ) : null}
                           <Link href={item.href} className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent self-center">
                             Open
                           </Link>
@@ -286,6 +298,14 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
           bomItemId={specRequestFor.bom_item_id}
           code={specRequestFor.code}
           onClose={() => setSpecRequestFor(null)}
+        />
+      ) : null}
+      {issueRfqFor?.entity_id ? (
+        <IssueRfqModal
+          prNo={issueRfqFor.entity_id}
+          code={issueRfqFor.code}
+          onClose={() => setIssueRfqFor(null)}
+          onIssued={(rfqNo) => router.push(`/sourcing/rfqs/${rfqNo}`)}
         />
       ) : null}
     </div>

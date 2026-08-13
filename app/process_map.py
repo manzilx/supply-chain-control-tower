@@ -109,6 +109,8 @@ def _next_action(
         return "request_spec"
     if stage == "pr" and pr is None:
         return "create_pr"
+    if stage == "pr" and pr is not None:
+        return "issue_rfq"
     return None
 
 

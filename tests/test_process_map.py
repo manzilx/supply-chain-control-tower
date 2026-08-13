@@ -179,12 +179,61 @@ def test_process_line_next_actions(
 
     for item in stages["pr"]["items"]:
         if item.get("entity_id"):
-            assert item["next_action"] is None
+            assert item["next_action"] == "issue_rfq"
         else:
             assert item["next_action"] == "create_pr"
 
     for item in stages["delivery"]["items"]:
         assert item["next_action"] is None
+
+
+def test_create_pr_sets_issue_rfq_action(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    first = client.get(f"/api/projects/{PROJECT}/process-map", headers=auth_headers)
+    assert first.status_code == 200
+    waiting = [
+        i for s in first.json()["stages"] if s["stage"] == "pr"
+        for i in s["items"] if i["next_action"] == "create_pr"
+    ]
+    assert waiting, "Riverbank should have planned lines ready for a PR"
+    item = waiting[0]
+    created = client.post(
+        "/api/prs",
+        headers=auth_headers,
+        json={"project_id": PROJECT, "bom_item_id": item["bom_item_id"]},
+    )
+    assert created.status_code == 200
+    pr_no = created.json()["pr_no"]
+
+    second = client.get(f"/api/projects/{PROJECT}/process-map", headers=auth_headers)
+    assert second.status_code == 200
+    line = next(
+        i
+        for s in second.json()["stages"]
+        for i in s["items"]
+        if i["bom_item_id"] == item["bom_item_id"]
+    )
+    assert line["next_action"] == "issue_rfq"
+    assert line["entity_id"] == pr_no
+
+    rfq = client.post(
+        "/api/rfqs",
+        headers=auth_headers,
+        json={"pr_no": pr_no, "vendors": ["Process Map Vendor"], "due_in_days": 10},
+    )
+    assert rfq.status_code == 200
+    third = client.get(f"/api/projects/{PROJECT}/process-map", headers=auth_headers)
+    assert third.status_code == 200
+    moved = next(
+        (s["stage"], i)
+        for s in third.json()["stages"]
+        for i in s["items"]
+        if i["bom_item_id"] == item["bom_item_id"]
+    )
+    assert moved[0] == "rfq"
+    assert moved[1]["next_action"] is None
 
 
 def test_weekly_plan_includes_process_review(
