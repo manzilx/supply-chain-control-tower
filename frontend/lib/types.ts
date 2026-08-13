@@ -296,6 +296,7 @@ export type ProcessLineRef = {
   at_risk: boolean;
   entity_id?: string | null;
   next_action?: ProcessNextAction | null;
+  days_in_stage?: number | null;
 };
 
 export type ProcessStageBucket = {
@@ -305,6 +306,7 @@ export type ProcessStageBucket = {
   done: number;
   blocked: number;
   at_risk: number;
+  aging?: number;
   items: ProcessLineRef[];
 };
 
@@ -372,6 +374,7 @@ export type ProjectProcessMap = {
   bom_total: number;
   blocked_total: number;
   at_risk_total: number;
+  aging_total?: number;
   open_risks: number;
   stages: ProcessStageBucket[];
   bottlenecks: ProcessBottleneck[];
@@ -385,6 +388,7 @@ export type ProjectProcessSummary = {
   bom_total: number;
   blocked_total: number;
   at_risk_total: number;
+  aging_total?: number;
   open_risks: number;
   bottleneck_stage?: ProcessStageName | null;
   bottleneck_reason?: string | null;

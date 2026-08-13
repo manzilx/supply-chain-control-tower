@@ -162,10 +162,11 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
         <EmptyState title="No process map" />
       ) : (
         <>
-          <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <KpiTile label="BOM Lines" value={String(data.bom_total)} />
             <KpiTile label="Blocked" value={String(data.blocked_total)} tone={data.blocked_total ? "bad" : "good"} />
             <KpiTile label="At Risk" value={String(data.at_risk_total)} tone={data.at_risk_total ? "warn" : "neutral"} />
+            <KpiTile label="Aging" value={String(data.aging_total ?? 0)} tone={(data.aging_total ?? 0) ? "warn" : "good"} />
             <KpiTile label="Open Risks" value={String(data.open_risks)} tone={data.open_risks ? "warn" : "good"} />
           </section>
 
@@ -221,6 +222,7 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
                       {s.done} past
                       {s.blocked ? ` · ${s.blocked} blocked` : ""}
                       {s.at_risk ? ` · ${s.at_risk} at risk` : ""}
+                      {s.aging ? ` · ${s.aging} aging` : ""}
                     </div>
                   </button>
                 );
@@ -240,6 +242,7 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
                   <tr>
                     <th>Item</th>
                     <th>Status</th>
+                    <th>Age</th>
                     <th>Flags</th>
                     <th></th>
                   </tr>
@@ -252,6 +255,15 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
                         <div className="text-xs text-muted">{item.description}</div>
                       </td>
                       <td className="text-muted text-sm">{item.status ?? "—"}</td>
+                      <td className="text-sm">
+                        {item.days_in_stage != null ? (
+                          <span className={item.days_in_stage >= 7 ? "badge severity-medium" : "text-muted"}>
+                            {item.days_in_stage}d
+                          </span>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
                       <td>
                         {item.blocked ? <span className="badge severity-high">blocked</span> : null}
                         {item.at_risk ? <span className="badge severity-medium ml-1">at risk</span> : null}

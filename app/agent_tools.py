@@ -248,7 +248,7 @@ def _summarize_process_map(mmap: Any) -> str:
     ) or "all delivered"
     return (
         f"{mmap.project_name}: {mmap.bom_total} BOM lines · {stuck}; "
-        f"{mmap.blocked_total} blocked, {mmap.open_risks} open risks, "
+        f"{mmap.blocked_total} blocked, {mmap.aging_total} aging, {mmap.open_risks} open risks, "
         f"{len(mmap.review_actions)} review action(s)."
     )
 
@@ -261,12 +261,13 @@ def _tool_process_summaries(_: dict) -> Any:
 def _summarize_process_summaries(rows: List[Any]) -> str:
     if not rows:
         return "No projects."
-    flagged = [s for s in rows if s.blocked_total or s.open_risks]
+    flagged = [s for s in rows if s.blocked_total or s.open_risks or s.aging_total]
     blocked = sum(s.blocked_total for s in rows)
     open_risks = sum(s.open_risks for s in rows)
+    aging = sum(s.aging_total for s in rows)
     names = ", ".join(s.project_id for s in flagged[:5]) or "none flagged"
     return (
-        f"{len(rows)} projects · {blocked} blocked lines · {open_risks} open risks · "
+        f"{len(rows)} projects · {blocked} blocked lines · {aging} aging · {open_risks} open risks · "
         f"attention: {names}."
     )
 
@@ -511,7 +512,7 @@ TOOLS: Dict[str, Tool] = {
     ),
     "portfolio_process_summary": Tool(
         name="portfolio_process_summary",
-        description="Portfolio SCM process health: blocked lines, bottlenecks, and open risks per project.",
+        description="Portfolio SCM process health: blocked lines, aging, bottlenecks, and open risks per project.",
         input_schema={"type": "object", "properties": {}, "required": []},
         persona="planning",
         run=_tool_process_summaries,

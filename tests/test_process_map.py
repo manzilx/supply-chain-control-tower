@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app.process_map import STAGE_ORDER
+from app.process_map import AGING_DAYS, STAGE_ORDER
 from tests.conftest import headers_for_user
 
 
@@ -29,6 +29,27 @@ def test_process_map_buckets_every_bom_line(
             assert item["bom_item_id"] not in seen
             seen.add(item["bom_item_id"])
     assert len(seen) == body["bom_total"]
+
+
+def test_process_map_reports_stage_dwell(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    res = client.get(f"/api/projects/{PROJECT}/process-map", headers=auth_headers)
+    assert res.status_code == 200
+    body = res.json()
+    spec = next(s for s in body["stages"] if s["stage"] == "spec")
+    assert spec["items"]
+    assert spec["aging"] == len(spec["items"])
+    for item in spec["items"]:
+        assert item["days_in_stage"] is not None
+        assert item["days_in_stage"] >= AGING_DAYS
+    assert body["aging_total"] >= spec["aging"]
+
+    summary = client.get("/api/projects/process-summary", headers=auth_headers)
+    assert summary.status_code == 200
+    river = next(s for s in summary.json() if s["project_id"] == PROJECT)
+    assert river["aging_total"] >= spec["aging"]
 
 
 def test_missing_spec_buckets_and_seeds_risk(
@@ -168,6 +189,7 @@ def test_process_map_review_actions_for_blocked_spec(
     assert spec["bom_item_id"]
     assert spec["code"]
     assert spec["href"].endswith("/process?stage=spec")
+    assert "Oldest line" in spec["why"]
 
 
 def test_process_line_next_actions(
@@ -229,6 +251,7 @@ def test_create_pr_sets_issue_rfq_action(
     )
     assert line["next_action"] == "issue_rfq"
     assert line["entity_id"] == pr_no
+    assert line["days_in_stage"] == 0
 
     rfq = client.post(
         "/api/rfqs",

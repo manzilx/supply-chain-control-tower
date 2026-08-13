@@ -7,10 +7,11 @@ furthest incomplete stage. No Process entity — status is always live.
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 from .planning import get_bom, get_project
 from .schemas import (
+    Award,
     BOMItem,
     ProcessBottleneck,
     ProcessLineRef,
@@ -20,11 +21,13 @@ from .schemas import (
     ProcessStageName,
     ProjectProcessMap,
     PurchaseRequisition,
+    Quote,
     RFQ,
     Shipment,
     SourcingPO,
+    TechnicalEvaluation,
 )
-from .sourcing import get_quotes, list_pos, list_prs, list_rfqs
+from .sourcing import get_quotes, list_awards, list_pos, list_prs, list_rfqs
 
 
 STAGE_ORDER: List[ProcessStageName] = [
@@ -81,6 +84,7 @@ STAGE_NEXT: Dict[ProcessStageName, str] = {
 
 _MOVING_SHIPMENT = {"dispatched", "in_transit", "at_port", "at_customs", "last_mile"}
 _INDEX = {s: i for i, s in enumerate(STAGE_ORDER)}
+AGING_DAYS = 7
 
 
 def _now() -> datetime:
@@ -122,6 +126,63 @@ def _next_action(
         return "add_quote"
     if stage in {"po", "shipment"} and po is not None:
         return "advance_shipment"
+    return None
+
+
+def _as_date(value: Optional[Union[datetime, date]]) -> Optional[date]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    return value
+
+
+def _days_in_stage(entered: Optional[Union[datetime, date]]) -> Optional[int]:
+    started = _as_date(entered)
+    if started is None:
+        return None
+    return max(0, (date.today() - started).days)
+
+
+def _entered_at(
+    stage: ProcessStageName,
+    pr: Optional[PurchaseRequisition],
+    rfq: Optional[RFQ],
+    po: Optional[SourcingPO],
+    shipment: Optional[Shipment],
+    quotes: List[Quote],
+    evaluations: List[TechnicalEvaluation],
+    award: Optional[Award],
+    project_start: date,
+) -> Optional[Union[datetime, date]]:
+    if stage == "delivery":
+        return None
+    if stage == "spec":
+        return project_start
+    if stage == "pr":
+        return pr.created_at if pr else project_start
+    if stage == "rfq":
+        return rfq.issued_at if rfq else (pr.created_at if pr else None)
+    if stage == "quotes":
+        if quotes:
+            return min(q.received_at for q in quotes)
+        return rfq.issued_at if rfq else None
+    if stage == "technical_eval":
+        if evaluations:
+            return min(e.evaluated_at for e in evaluations)
+        return rfq.issued_at if rfq else None
+    if stage == "award":
+        return award.awarded_at if award else None
+    if stage == "po":
+        return po.created_at if po else None
+    if stage == "shipment":
+        if shipment and shipment.events:
+            moving = [e for e in shipment.events if e.stage in _MOVING_SHIPMENT]
+            pool = moving or list(shipment.events)
+            return min(e.at for e in pool)
+        return po.created_at if po else None
+    if stage == "site_grn":
+        return po.created_at if po else None
     return None
 
 
@@ -228,6 +289,8 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
 
     from .tbe import list_evaluations
 
+    award_by_pr = {a.pr_no: a for a in list_awards(tenant_id=tenant_id)}
+
     buckets: Dict[ProcessStageName, List[ProcessLineRef]] = {s: [] for s in STAGE_ORDER}
     current_idx: Dict[str, int] = {}
 
@@ -236,13 +299,17 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
         rfq = rfq_by_pr.get(pr.pr_no) if pr else None
         po = po_by_pr.get(pr.pr_no) if pr else None
         shipment = ship_by_po.get(po.po_no) if po else None
-        tbe_done = bool(rfq and list_evaluations(rfq.rfq_no))
-        quotes_n = len(get_quotes(rfq.rfq_no, tenant_id=tenant_id)) if rfq else 0
+        evaluations = list_evaluations(rfq.rfq_no) if rfq else []
+        quotes = get_quotes(rfq.rfq_no, tenant_id=tenant_id) if rfq else []
+        award = award_by_pr.get(pr.pr_no) if pr else None
         stage, blocked, at_risk, status = _classify(
-            item, pr, rfq, po, shipment, tbe_done, quotes_n,
+            item, pr, rfq, po, shipment, bool(evaluations), len(quotes),
             urgency_by_po.get(po.po_no) if po else None,
         )
         href, entity_id = _href(stage, project_id, pr, rfq, po)
+        dwell = _days_in_stage(_entered_at(
+            stage, pr, rfq, po, shipment, quotes, evaluations, award, project.start_date,
+        ))
         ref = ProcessLineRef(
             bom_item_id=item.bom_item_id,
             code=item.code,
@@ -252,7 +319,8 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
             blocked=blocked,
             at_risk=at_risk,
             entity_id=entity_id,
-            next_action=_next_action(stage, item, pr, rfq, quotes_n, po),
+            next_action=_next_action(stage, item, pr, rfq, len(quotes), po),
+            days_in_stage=dwell,
         )
         buckets[stage].append(ref)
         current_idx[item.bom_item_id] = _INDEX[stage]
@@ -262,6 +330,7 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
     bottlenecks: List[ProcessBottleneck] = []
     blocked_total = 0
     at_risk_total = 0
+    aging_total = 0
 
     for stage in STAGE_ORDER:
         items = buckets[stage]
@@ -269,8 +338,14 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
         done = sum(1 for i in current_idx.values() if i > idx)
         blocked = sum(1 for x in items if x.blocked)
         at_risk = sum(1 for x in items if x.at_risk)
+        aging = sum(
+            1 for x in items
+            if x.days_in_stage is not None and x.days_in_stage >= AGING_DAYS
+        )
+        oldest = max((x.days_in_stage or 0 for x in items), default=0)
         blocked_total += blocked
         at_risk_total += at_risk
+        aging_total += aging
         stages.append(
             ProcessStageBucket(
                 stage=stage,
@@ -279,18 +354,24 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
                 done=done,
                 blocked=blocked,
                 at_risk=at_risk,
+                aging=aging,
                 items=items,
             )
         )
         if blocked:
-            bottlenecks.append(ProcessBottleneck(
-                stage=stage, count=blocked,
-                reason=f"{blocked} line(s) blocked at {STAGE_LABEL[stage]}",
-            ))
+            reason = f"{blocked} line(s) blocked at {STAGE_LABEL[stage]}"
+            if oldest:
+                reason += f" · oldest {oldest}d"
+            bottlenecks.append(ProcessBottleneck(stage=stage, count=blocked, reason=reason))
         elif at_risk >= 2:
             bottlenecks.append(ProcessBottleneck(
                 stage=stage, count=at_risk,
                 reason=f"{at_risk} line(s) at risk at {STAGE_LABEL[stage]}",
+            ))
+        elif aging >= 2:
+            bottlenecks.append(ProcessBottleneck(
+                stage=stage, count=aging,
+                reason=f"{aging} line(s) aging ≥{AGING_DAYS}d at {STAGE_LABEL[stage]}",
             ))
 
     from .risk_register import list_project_risks, seed_project
@@ -306,6 +387,7 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
         bom_total=n,
         blocked_total=blocked_total,
         at_risk_total=at_risk_total,
+        aging_total=aging_total,
         open_risks=open_risks,
         stages=stages,
         bottlenecks=bottlenecks,
@@ -332,24 +414,28 @@ def list_process_summaries(tenant_id: str) -> list:
                 bom_total=mmap.bom_total,
                 blocked_total=mmap.blocked_total,
                 at_risk_total=mmap.at_risk_total,
+                aging_total=mmap.aging_total,
                 open_risks=mmap.open_risks,
                 bottleneck_stage=bn.stage if bn else None,
                 bottleneck_reason=bn.reason if bn else None,
                 current_by_stage={s.stage: s.current for s in mmap.stages},
             )
         )
-    out.sort(key=lambda s: (-s.blocked_total, -s.open_risks, s.project_name))
+    out.sort(key=lambda s: (-s.blocked_total, -s.aging_total, -s.open_risks, s.project_name))
     return out
 
 
 def _review_line(bucket: Optional[ProcessStageBucket]) -> Optional[ProcessLineRef]:
     items = bucket.items if bucket else []
-    return (
-        next((i for i in items if i.blocked and i.next_action), None)
-        or next((i for i in items if i.next_action), None)
-        or next((i for i in items if i.blocked), None)
-        or (items[0] if items else None)
+    ranked = sorted(
+        items,
+        key=lambda i: (
+            0 if i.blocked else 1,
+            0 if i.next_action else 1,
+            -(i.days_in_stage or 0),
+        ),
     )
+    return ranked[0] if ranked else None
 
 
 def _action_from_line(
@@ -363,10 +449,13 @@ def _action_from_line(
     line: Optional[ProcessLineRef] = None,
     risk_id: Optional[str] = None,
 ) -> ProcessReviewAction:
+    detail = why
+    if line and line.days_in_stage:
+        detail = f"{why} Oldest line {line.days_in_stage}d."
     return ProcessReviewAction(
         priority=priority,  # type: ignore[arg-type]
         title=title,
-        why=why,
+        why=detail,
         owner=owner,
         href=href,
         process_stage=process_stage,

@@ -706,6 +706,7 @@ class ProcessLineRef(BaseModel):
     at_risk: bool = False
     entity_id: Optional[str] = None
     next_action: Optional[ProcessNextAction] = None
+    days_in_stage: Optional[int] = None
 
 
 class ProcessStageBucket(BaseModel):
@@ -715,6 +716,7 @@ class ProcessStageBucket(BaseModel):
     done: int
     blocked: int
     at_risk: int
+    aging: int = 0
     items: List[ProcessLineRef] = Field(default_factory=list)
 
 
@@ -782,6 +784,7 @@ class ProjectProcessMap(BaseModel):
     bom_total: int
     blocked_total: int
     at_risk_total: int
+    aging_total: int = 0
     open_risks: int
     stages: List[ProcessStageBucket]
     bottlenecks: List[ProcessBottleneck] = Field(default_factory=list)
@@ -795,6 +798,7 @@ class ProjectProcessSummary(BaseModel):
     bom_total: int
     blocked_total: int
     at_risk_total: int
+    aging_total: int = 0
     open_risks: int
     bottleneck_stage: Optional[ProcessStageName] = None
     bottleneck_reason: Optional[str] = None

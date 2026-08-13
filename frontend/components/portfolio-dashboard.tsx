@@ -306,9 +306,10 @@ function ProcessHealthStrip({
     );
   }
   const rows = summaries ?? [];
-  const flagged = rows.filter((s) => s.blocked_total > 0 || s.open_risks > 0);
+  const flagged = rows.filter((s) => s.blocked_total > 0 || s.open_risks > 0 || (s.aging_total ?? 0) > 0);
   const blocked = rows.reduce((n, s) => n + s.blocked_total, 0);
   const openRisks = rows.reduce((n, s) => n + s.open_risks, 0);
+  const aging = rows.reduce((n, s) => n + (s.aging_total ?? 0), 0);
 
   return (
     <section className="panel animate-fade-up">
@@ -317,7 +318,7 @@ function ProcessHealthStrip({
           <div className="text-[0.7rem] uppercase tracking-[0.14em] text-muted font-bold">
             Process health
           </div>
-          <h3 className="m-0 text-base font-bold">Blocked lines and open risks</h3>
+          <h3 className="m-0 text-base font-bold">Blocked lines, aging, and open risks</h3>
         </div>
         <div className="flex items-center gap-4">
           <Link href="/risks" className="text-xs text-accent hover:text-accent-strong">
@@ -332,12 +333,15 @@ function ProcessHealthStrip({
         <span className={`badge ${blocked ? "severity-high" : "severity-low"}`}>
           {blocked} blocked
         </span>
+        <span className={`badge ${aging ? "severity-medium" : "severity-low"}`}>
+          {aging} aging
+        </span>
         <span className={`badge ${openRisks ? "severity-medium" : "severity-low"}`}>
           {openRisks} open risks
         </span>
       </div>
       {flagged.length === 0 ? (
-        <div className="text-sm text-muted">No blocked lines or open risks across the portfolio.</div>
+        <div className="text-sm text-muted">No blocked, aging, or open-risk projects in the portfolio.</div>
       ) : (
         <div className="space-y-1">
           {flagged.map((s) => (
@@ -358,6 +362,9 @@ function ProcessHealthStrip({
               <div className="flex items-center gap-2 shrink-0">
                 {s.blocked_total > 0 ? (
                   <span className="badge severity-high">{s.blocked_total} blocked</span>
+                ) : null}
+                {(s.aging_total ?? 0) > 0 ? (
+                  <span className="badge severity-medium">{s.aging_total} aging</span>
                 ) : null}
                 {s.open_risks > 0 ? (
                   <span className="badge severity-medium">{s.open_risks} risks</span>

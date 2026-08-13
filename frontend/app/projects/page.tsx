@@ -160,7 +160,8 @@ function ProcessHealthRow({ summary }: { summary?: ProjectProcessSummary }) {
       <Stat
         label="At risk"
         value={String(summary.at_risk_total)}
-        tone={summary.at_risk_total > 0 ? "warn" : "neutral"}
+        hint={summary.aging_total ? `${summary.aging_total} aging ≥7d` : undefined}
+        tone={summary.at_risk_total > 0 || (summary.aging_total ?? 0) > 0 ? "warn" : "neutral"}
       />
       <Stat
         label="Open risks"
