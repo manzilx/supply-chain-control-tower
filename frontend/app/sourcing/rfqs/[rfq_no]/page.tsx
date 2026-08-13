@@ -2,55 +2,20 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { AddQuoteForm } from "@/components/add-quote-form";
+import { AwardForm } from "@/components/award-form";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { RFQStatusBadge } from "@/components/sourcing-badges";
 import { TbePanel } from "@/components/tbe-panel";
 import { EntityTrail } from "@/components/traceability";
-import {
-  awardRfq,
-  fetchQuoteComparison,
-  fetchQuotes,
-  fetchRfq,
-  fetchTbe,
-} from "@/lib/api";
+import { fetchQuoteComparison, fetchQuotes, fetchRfq } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { formatDate, formatMoney } from "@/lib/format-date";
 import { useToast } from "@/lib/toast-context";
-import type { CombinedEvaluation, TBE } from "@/lib/types";
 import { useAsync } from "@/lib/use-async";
-
-type TbeAwardState =
-  | { mode: "tbe"; target: CombinedEvaluation; rationale: string | null }
-  | { mode: "blocked"; reason: string; target?: CombinedEvaluation }
-  | { mode: "not_run" }
-  | { mode: "no_data" };
-
-function resolveTbeAward(tbe: TBE | null | undefined): TbeAwardState {
-  if (!tbe || tbe.combined.length === 0) return { mode: "no_data" };
-  if (tbe.technical_evaluations.length === 0) return { mode: "not_run" };
-
-  const leader =
-    tbe.combined.find((c) => c.combined_rank === 1) ??
-    [...tbe.combined].sort((a, b) => a.combined_rank - b.combined_rank)[0];
-
-  if (leader.disqualified) {
-    return {
-      mode: "blocked",
-      target: leader,
-      reason: `Combined #1 (${leader.vendor}) is disqualified on mandatory technical criteria. Resolve the evaluation before awarding.`,
-    };
-  }
-
-  return {
-    mode: "tbe",
-    target: leader,
-    rationale: tbe.recommendation_rationale ?? null,
-  };
-}
 
 export default function RFQPage({ params }: { params: { rfq_no: string } }) {
   const router = useRouter();
@@ -61,83 +26,14 @@ export default function RFQPage({ params }: { params: { rfq_no: string } }) {
   const rfq = useAsync(() => fetchRfq(params.rfq_no), [params.rfq_no]);
   const quotes = useAsync(() => fetchQuotes(params.rfq_no), [params.rfq_no]);
   const comparison = useAsync(() => fetchQuoteComparison(params.rfq_no), [params.rfq_no]);
-  const tbe = useAsync(() => fetchTbe(params.rfq_no), [params.rfq_no]);
+  const [awardReload, setAwardReload] = useState(0);
 
   const reloadEvaluations = useCallback(() => {
     comparison.reload();
-    tbe.reload();
-  }, [comparison, tbe]);
+    setAwardReload((k) => k + 1);
+  }, [comparison]);
 
-  const tbeAward = useMemo(() => resolveTbeAward(tbe.data), [tbe.data]);
   const commercialWinner = comparison.data?.evaluations[0] ?? null;
-
-  const [awardRationale, setAwardRationale] = useState("");
-  const [awarding, setAwarding] = useState(false);
-  const [awardErr, setAwardErr] = useState<string | null>(null);
-
-  async function handleAward(
-    quoteId: string,
-    opts?: { confirmMessage?: string; rationale?: string },
-  ) {
-    if (!rfq.data) return;
-    const message = opts?.confirmMessage ?? "Award this quote and auto-draft a PO?";
-    if (!confirm(message)) return;
-    setAwarding(true);
-    setAwardErr(null);
-    try {
-      const reply = await awardRfq(params.rfq_no, {
-        quote_id: quoteId,
-        rationale: (opts?.rationale ?? awardRationale) || null,
-      });
-      if (reply.status === "pending_approval") {
-        toast.warn(
-          `Awaiting ${reply.approval.required_role.replace("_", " ")} approval`,
-          { label: "View approvals", href: "/approvals" },
-        );
-        rfq.reload();
-        setAwarding(false);
-      } else {
-        toast.success(
-          reply.po ? `Awarded — ${reply.po.po_no} drafted` : "RFQ awarded",
-          { label: "View POs", href: "/pos" },
-        );
-        router.push("/sourcing");
-      }
-    } catch (err) {
-      setAwardErr(err instanceof Error ? err.message : "Failed to award RFQ");
-      setAwarding(false);
-    }
-  }
-
-  function buildTbeConfirmMessage(target: CombinedEvaluation, rationale: string | null): string {
-    const lines = [
-      `Award to ${target.vendor} (TBE combined #1, score ${target.combined_score.toFixed(1)})?`,
-      `Commercial ${target.commercial_score.toFixed(0)} · Technical ${target.technical_score} · ${target.deviations_count} deviation(s).`,
-    ];
-    if (rationale) lines.push("", rationale);
-    lines.push("", "Proceed and auto-draft a PO?");
-    return lines.join("\n");
-  }
-
-  function handleAwardRecommended() {
-    if (tbeAward.mode !== "tbe") return;
-    void handleAward(tbeAward.target.quote_id, {
-      confirmMessage: buildTbeConfirmMessage(tbeAward.target, tbeAward.rationale),
-    });
-  }
-
-  function handleCommercialOverride() {
-    if (!commercialWinner) return;
-    void handleAward(commercialWinner.quote_id, {
-      confirmMessage: [
-        `Commercial-only override: award to ${commercialWinner.vendor} (commercial #1)?`,
-        "",
-        "This bypasses technical bid evaluation. Use only when TBE has not been completed.",
-        "",
-        "Proceed and auto-draft a PO?",
-      ].join("\n"),
-    });
-  }
 
   if (rfq.loading) return <EmptyState title="Loading RFQ..." />;
   if (rfq.error || !rfq.data) {
@@ -165,7 +61,9 @@ export default function RFQPage({ params }: { params: { rfq_no: string } }) {
             </Link>
             {data.project_id ? (
               <Link
-                href={`/projects/${encodeURIComponent(data.project_id)}/process?stage=rfq`}
+                href={`/projects/${encodeURIComponent(data.project_id)}/process?stage=${
+                  data.status === "evaluated" ? "technical_eval" : data.status === "quotes_received" ? "quotes" : "rfq"
+                }`}
                 className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent"
               >
                 Process
@@ -349,92 +247,25 @@ export default function RFQPage({ params }: { params: { rfq_no: string } }) {
               Awards follow the TBE combined ranking (commercial + technical). Approval gating still applies for high-value awards.
             </p>
           </div>
-
-          {tbe.loading ? (
-            <EmptyState title="Loading TBE recommendation..." />
-          ) : tbeAward.mode === "tbe" ? (
-            <div className="panel-sm space-y-3 border border-emerald-500/30 bg-emerald-500/[0.04]">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div>
-                  <div className="text-[0.65rem] uppercase tracking-[0.12em] text-emerald-300 font-bold">
-                    TBE recommended
-                  </div>
-                  <div className="text-lg font-bold text-ink mt-1">
-                    {tbeAward.target.vendor}
-                    <span className="text-sm text-muted font-normal ml-2">
-                      combined {tbeAward.target.combined_score.toFixed(1)}
-                    </span>
-                  </div>
-                  <div className="text-xs text-muted mt-1">
-                    Commercial {tbeAward.target.commercial_score.toFixed(0)} · Technical {tbeAward.target.technical_score}
-                    · rank #{tbeAward.target.combined_rank}
-                    {tbeAward.target.deviations_count > 0
-                      ? ` · ${tbeAward.target.deviations_count} deviation(s)`
-                      : ""}
-                  </div>
-                </div>
-                <button
-                  className="btn btn-primary"
-                  onClick={handleAwardRecommended}
-                  disabled={awarding}
-                >
-                  {awarding ? "Awarding..." : `Award recommended (${tbeAward.target.vendor})`}
-                </button>
-              </div>
-              {tbeAward.rationale ? (
-                <p className="text-sm text-ink leading-relaxed m-0">{tbeAward.rationale}</p>
-              ) : null}
-            </div>
-          ) : tbeAward.mode === "blocked" ? (
-            <div className="panel-sm border border-rose-500/30 bg-rose-500/[0.04] text-sm">
-              <div className="font-bold text-rose-300 mb-1">Award blocked</div>
-              <p className="text-ink m-0">{tbeAward.reason}</p>
-              <Link href="#tbe-panel" className="inline-block mt-2 text-accent text-xs hover:underline">
-                Review TBE panel →
-              </Link>
-            </div>
-          ) : tbeAward.mode === "not_run" ? (
-            <div className="panel-sm space-y-3">
-              <div>
-                <div className="font-bold text-ink">Run TBE before awarding</div>
-                <p className="text-sm text-muted mt-1 m-0">
-                  Technical bid evaluation has not been completed. Score vendors in the TBE panel, then award the combined #1.
-                </p>
-                <Link href="#tbe-panel" className="inline-block mt-2 text-accent text-sm hover:underline">
-                  Go to Technical Bid Evaluation →
-                </Link>
-              </div>
-              {commercialWinner ? (
-                <div className="pt-3 border-t border-line">
-                  <p className="text-xs text-muted m-0 mb-2">
-                    Emergency override — awards commercial #1 without technical evaluation.
-                  </p>
-                  <button
-                    className="btn btn-secondary text-xs"
-                    onClick={handleCommercialOverride}
-                    disabled={awarding}
-                  >
-                    {awarding ? "Awarding..." : `Commercial-only override (${commercialWinner.vendor})`}
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <EmptyState title="Award needs quotes and TBE data" />
-          )}
-
-          <div className="space-y-2">
-            <div className="text-[0.65rem] uppercase tracking-[0.12em] text-muted font-bold">
-              Custom rationale (optional)
-            </div>
-            <textarea
-              rows={3}
-              value={awardRationale}
-              onChange={(e) => setAwardRationale(e.target.value)}
-              placeholder="Why this vendor? Any commercial or technical notes worth recording..."
-            />
-            {awardErr ? <div className="text-[#ff9d9d] text-sm">{awardErr}</div> : null}
-          </div>
+          <AwardForm
+            rfqNo={params.rfq_no}
+            reloadKey={awardReload}
+            onAwarded={(reply) => {
+              if (reply.status === "pending_approval") {
+                toast.warn(
+                  `Awaiting ${reply.approval.required_role.replace("_", " ")} approval`,
+                  { label: "View approvals", href: "/approvals" },
+                );
+                rfq.reload();
+              } else {
+                toast.success(
+                  reply.po ? `Awarded — ${reply.po.po_no} drafted` : "RFQ awarded",
+                  { label: "View POs", href: "/pos" },
+                );
+                router.push("/sourcing");
+              }
+            }}
+          />
         </section>
       ) : null}
 

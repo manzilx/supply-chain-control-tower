@@ -693,7 +693,7 @@ ProcessStageName = Literal[
 ]
 ManagedRiskStatus = Literal["open", "mitigating", "accepted", "closed"]
 ManagedRiskSource = Literal["live", "manual"]
-ProcessNextAction = Literal["request_spec", "create_pr", "issue_rfq", "add_quote"]
+ProcessNextAction = Literal["request_spec", "create_pr", "issue_rfq", "add_quote", "award"]
 
 
 class ProcessLineRef(BaseModel):

@@ -105,6 +105,7 @@ def _next_action(
     item: BOMItem,
     pr: Optional[PurchaseRequisition],
     rfq: Optional[RFQ] = None,
+    quotes_n: int = 0,
 ) -> Optional[ProcessNextAction]:
     if stage == "spec" and item.status == "spec_missing":
         return "request_spec"
@@ -112,6 +113,8 @@ def _next_action(
         return "create_pr"
     if stage == "pr" and pr is not None:
         return "issue_rfq"
+    if stage in {"quotes", "technical_eval"} and rfq is not None and quotes_n > 0:
+        return "award"
     if stage in {"rfq", "quotes"} and rfq is not None:
         return "add_quote"
     return None
@@ -244,7 +247,7 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
             blocked=blocked,
             at_risk=at_risk,
             entity_id=entity_id,
-            next_action=_next_action(stage, item, pr, rfq),
+            next_action=_next_action(stage, item, pr, rfq, quotes_n),
         )
         buckets[stage].append(ref)
         current_idx[item.bom_item_id] = _INDEX[stage]

@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/page-header";
 import { ProjectTabs } from "@/components/project-tabs";
 import { SpecRequestModal } from "@/components/spec-request-modal";
 import { AddQuoteModal } from "@/components/add-quote-form";
+import { AwardModal } from "@/components/award-form";
 import { IssueRfqModal } from "@/components/issue-rfq-form";
 import {
   createPr,
@@ -19,6 +20,7 @@ import {
   patchProjectRisk,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { useToast } from "@/lib/toast-context";
 import { useAsync } from "@/lib/use-async";
 import type {
   CreateManagedRiskRequest,
@@ -49,11 +51,13 @@ const SCORE: Record<Severity, number> = { low: 30, medium: 55, high: 78, critica
 export default function ProcessPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const toast = useToast();
   const { hasPerm } = useAuth();
   const canUpdate = hasPerm("risk", "update");
   const canCreatePr = hasPerm("pr", "create");
   const canIssueRfq = hasPerm("rfq", "create");
   const canAddQuote = hasPerm("quote", "create");
+  const canAward = hasPerm("award", "create");
   const map = useAsync(() => fetchProcessMap(params.id), [params.id]);
   const qStage = searchParams.get("stage");
   const queryStage = STAGES.includes(qStage as ProcessStageName)
@@ -68,6 +72,7 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
   const [specRequestFor, setSpecRequestFor] = useState<ProcessLineRef | null>(null);
   const [issueRfqFor, setIssueRfqFor] = useState<ProcessLineRef | null>(null);
   const [addQuoteFor, setAddQuoteFor] = useState<ProcessLineRef | null>(null);
+  const [awardFor, setAwardFor] = useState<ProcessLineRef | null>(null);
 
   const data = map.data;
   const selected: ProcessStageBucket | undefined = data?.stages.find(
@@ -142,7 +147,7 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
       <PageHeader
         eyebrow={params.id}
         title={data?.project_name ?? "SCM Process"}
-        description="Live BOM→delivery map for this project. Request a spec or raise a PR from a stage, then manage the risk register."
+        description="Live BOM→delivery map for this project. Request a spec, raise a PR, issue an RFQ, capture a quote, or award from a stage, then manage the risk register."
       />
       <ProjectTabs projectId={params.id} />
 
@@ -275,6 +280,15 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
                               Add quote
                             </button>
                           ) : null}
+                          {item.next_action === "award" && canAward && item.entity_id ? (
+                            <button
+                              type="button"
+                              className="btn btn-secondary text-xs py-1"
+                              onClick={() => setAwardFor(item)}
+                            >
+                              Award
+                            </button>
+                          ) : null}
                           <Link href={item.href} className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent self-center">
                             Open
                           </Link>
@@ -328,6 +342,30 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
           onSaved={() => {
             setAddQuoteFor(null);
             map.reload();
+          }}
+        />
+      ) : null}
+      {awardFor?.entity_id ? (
+        <AwardModal
+          rfqNo={awardFor.entity_id}
+          code={awardFor.code}
+          onClose={() => setAwardFor(null)}
+          onAwarded={(reply) => {
+            if (reply.status === "pending_approval") {
+              toast.warn(
+                `Awaiting ${reply.approval.required_role.replace("_", " ")} approval`,
+                { label: "View approvals", href: "/approvals" },
+              );
+              setAwardFor(null);
+              map.reload();
+            } else {
+              toast.success(
+                reply.po ? `Awarded — ${reply.po.po_no} drafted` : "RFQ awarded",
+                { label: "View POs", href: "/pos" },
+              );
+              setAwardFor(null);
+              map.reload();
+            }
           }}
         />
       ) : null}
