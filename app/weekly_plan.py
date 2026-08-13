@@ -117,6 +117,11 @@ def _resolve_item_href(category: WeeklyCategory, refs: List[str]) -> Optional[st
         if project_id:
             return f"/projects/{project_id}"
 
+    if category == "process":
+        if project_id:
+            return f"/projects/{project_id}/process"
+        return "/projects"
+
     if category == "logistics":
         return "/logistics"
 
@@ -145,6 +150,8 @@ def _resolve_primary_action(
         return "Open commercial"
     if category == "planning":
         return "Open BOM" if href.endswith("/bom") else "Open project"
+    if category == "process":
+        return "Open process"
     if category == "sourcing":
         if any(ref.startswith("RFQ-") for ref in refs):
             return "Open RFQ"
@@ -264,6 +271,49 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
                         )
                     )
 
+    # 2b. Process review — blocked stages and unmanaged open risks
+    from .process_map import list_process_summaries
+
+    summaries = list_process_summaries(tenant_id or "")
+    process_blocked = sum(s.blocked_total for s in summaries)
+    process_open_risks = sum(s.open_risks for s in summaries)
+    for summary in summaries:
+        if summary.blocked_total == 0 and summary.open_risks == 0:
+            continue
+        stage_label = (summary.bottleneck_stage or "pipeline").replace("_", " ")
+        if summary.blocked_total:
+            title = (
+                f"Review {summary.project_name}: {summary.blocked_total} blocked "
+                f"at {stage_label}"
+            )
+            why = summary.bottleneck_reason or f"{summary.blocked_total} BOM line(s) are blocked."
+            priority = "P1"
+            due = 2
+            confidence = 90
+        else:
+            title = (
+                f"Review {summary.project_name}: {summary.open_risks} open process risk(s)"
+            )
+            why = "Open risks still need an owner or mitigation before the next review."
+            priority = "P2"
+            due = 5
+            confidence = 80
+        items.append(
+            _make_item(
+                priority=priority,
+                category="process",
+                title=title,
+                why=why,
+                expected_impact=(
+                    "Clears the process bottleneck and keeps the BOM→delivery map moving."
+                ),
+                owner="Procurement",
+                due_in_days=due,
+                confidence=confidence,
+                supporting_refs=[f"project:{summary.project_id}"],
+            )
+        )
+
     # 3. Vendor risk — single-source with flags
     vendor_summaries = list_vendor_summaries(tenant_id=tenant_id)
     concentration = {c.category: c for c in list_category_concentration(tenant_id=tenant_id)}
@@ -344,8 +394,11 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
     priority_key = {"P1": 0, "P2": 1, "P3": 2}
     items.sort(key=lambda i: (priority_key[i.priority], -i.confidence))
 
-    # Cap to 10 items
-    items = items[:10]
+    # Reserve up to 3 process-review slots so the weekly review is not crowded out.
+    process_keep = [i for i in items if i.category == "process"][:3]
+    others = [i for i in items if i.category != "process"]
+    items = others[: 10 - len(process_keep)] + process_keep
+    items.sort(key=lambda i: (priority_key[i.priority], -i.confidence))
 
     # Headline
     p1_count = sum(1 for i in items if i.priority == "P1")
@@ -388,6 +441,11 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
             tone="bad" if any(c.single_source for c in concentration.values()) else "good",
         ),
         KpiSnapshot(
+            label="Process Blocked",
+            value=f"{process_blocked} lines · {process_open_risks} open risks",
+            tone="bad" if process_blocked else ("warn" if process_open_risks else "good"),
+        ),
+        KpiSnapshot(
             label="Open Incidents",
             value=str(len(scenario.incidents)),
             tone="warn" if scenario.incidents else "good",
@@ -401,7 +459,7 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
         kpi_snapshot=kpi_snapshot,
         items=items,
         assumptions=[
-            "Plan is rebuilt on every fetch from current scenario + sourcing + logistics state.",
+            "Plan is rebuilt on every fetch from current scenario + sourcing + logistics + process map state.",
             "Priorities use deterministic rules; synthesized_narrative comes from Grok when XAI_API_KEY is set.",
             "Confidence is a heuristic from signal strength, not a statistical estimate.",
         ],

@@ -248,7 +248,8 @@ def _summarize_process_map(mmap: Any) -> str:
     ) or "all delivered"
     return (
         f"{mmap.project_name}: {mmap.bom_total} BOM lines · {stuck}; "
-        f"{mmap.blocked_total} blocked, {mmap.open_risks} open risks."
+        f"{mmap.blocked_total} blocked, {mmap.open_risks} open risks, "
+        f"{len(mmap.review_actions)} review action(s)."
     )
 
 

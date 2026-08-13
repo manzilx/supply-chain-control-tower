@@ -19,6 +19,7 @@ const CATEGORY_LABEL: Record<WeeklyCategory, string> = {
   logistics: "Logistics",
   commercial: "Commercial",
   planning: "Planning",
+  process: "Process",
 };
 
 const TONE_COLOR: Record<KpiSnapshot["tone"], string> = {

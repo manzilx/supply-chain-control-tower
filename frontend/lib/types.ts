@@ -312,6 +312,16 @@ export type ProcessBottleneck = {
   reason: string;
 };
 
+export type ProcessReviewAction = {
+  priority: "P1" | "P2" | "P3";
+  title: string;
+  why: string;
+  owner: string;
+  href: string;
+  process_stage?: ProcessStageName | null;
+  risk_id?: string | null;
+};
+
 export type ManagedRisk = {
   risk_id: string;
   tenant_id: string;
@@ -360,6 +370,7 @@ export type ProjectProcessMap = {
   stages: ProcessStageBucket[];
   bottlenecks: ProcessBottleneck[];
   risks: ManagedRisk[];
+  review_actions: ProcessReviewAction[];
 };
 
 export type ProjectProcessSummary = {
@@ -1127,7 +1138,8 @@ export type WeeklyCategory =
   | "vendor_risk"
   | "logistics"
   | "commercial"
-  | "planning";
+  | "planning"
+  | "process";
 
 export type KpiSnapshot = {
   label: string;

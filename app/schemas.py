@@ -722,6 +722,16 @@ class ProcessBottleneck(BaseModel):
     reason: str
 
 
+class ProcessReviewAction(BaseModel):
+    priority: Literal["P1", "P2", "P3"]
+    title: str
+    why: str
+    owner: str
+    href: str
+    process_stage: Optional[ProcessStageName] = None
+    risk_id: Optional[str] = None
+
+
 class ManagedRisk(BaseModel):
     risk_id: str
     tenant_id: str
@@ -770,6 +780,7 @@ class ProjectProcessMap(BaseModel):
     stages: List[ProcessStageBucket]
     bottlenecks: List[ProcessBottleneck] = Field(default_factory=list)
     risks: List[ManagedRisk] = Field(default_factory=list)
+    review_actions: List[ProcessReviewAction] = Field(default_factory=list)
 
 
 class ProjectProcessSummary(BaseModel):
@@ -1234,7 +1245,7 @@ AgentPersona = Literal[
     "sourcing", "expediting", "vendor_risk", "logistics", "commercial", "planning", "reporting", "general"
 ]
 WeeklyCategory = Literal[
-    "sourcing", "expediting", "vendor_risk", "logistics", "commercial", "planning"
+    "sourcing", "expediting", "vendor_risk", "logistics", "commercial", "planning", "process"
 ]
 
 

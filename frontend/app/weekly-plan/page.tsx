@@ -12,7 +12,7 @@ export default function WeeklyPlanPage() {
       <PageHeader
         eyebrow="Weekly plan"
         title="This Week's Action Plan"
-        description="Auto-generated from expediting, planning, sourcing, vendor intel, and commercial rollups. Every item has a why, expected impact, owner, due date, and supporting data."
+        description="Auto-generated from expediting, planning, sourcing, process bottlenecks, vendor intel, and commercial rollups. Every item has a why, expected impact, owner, due date, and supporting data."
         right={
           <button className="btn btn-secondary" onClick={() => plan.reload()}>
             Rebuild

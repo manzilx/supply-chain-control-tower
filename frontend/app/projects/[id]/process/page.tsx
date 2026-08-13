@@ -19,6 +19,7 @@ import type {
   CreateManagedRiskRequest,
   ManagedRisk,
   ManagedRiskStatus,
+  ProcessReviewAction,
   ProcessStageBucket,
   ProcessStageName,
   Severity,
@@ -110,7 +111,7 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
       <PageHeader
         eyebrow={params.id}
         title={data?.project_name ?? "SCM Process"}
-        description="Live BOM→delivery map for this project. Risks are seeded from current signals; status and owner stick across refreshes."
+        description="Live BOM→delivery map for this project. This week's review lists the next actions; risks keep status and owner across refreshes."
       />
       <ProjectTabs projectId={params.id} />
 
@@ -143,6 +144,11 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
               ))}
             </div>
           ) : null}
+
+          <ReviewPanel
+            actions={data.review_actions}
+            onSelectStage={setStage}
+          />
 
           <section className="panel">
             <h2 className="m-0 text-lg font-bold mb-4">Pipeline</h2>
@@ -228,6 +234,59 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
         </>
       )}
     </div>
+  );
+}
+
+function ReviewPanel({
+  actions,
+  onSelectStage,
+}: {
+  actions: ProcessReviewAction[];
+  onSelectStage: (stage: ProcessStageName) => void;
+}) {
+  if (!actions.length) return null;
+  return (
+    <section className="panel space-y-3">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <h2 className="m-0 text-lg font-bold">This week&apos;s review</h2>
+        <div className="text-xs text-muted">{actions.length} next action{actions.length === 1 ? "" : "s"}</div>
+      </div>
+      <div className="space-y-2">
+        {actions.map((a) => (
+          <div key={`${a.title}-${a.risk_id ?? a.process_stage ?? ""}`} className="panel-sm flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`badge ${a.priority === "P1" ? "severity-critical" : a.priority === "P2" ? "severity-high" : "severity-medium"}`}>
+                  {a.priority}
+                </span>
+                {a.process_stage ? (
+                  <button
+                    type="button"
+                    className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-muted hover:text-accent"
+                    onClick={() => onSelectStage(a.process_stage as ProcessStageName)}
+                  >
+                    {a.process_stage.replace(/_/g, " ")}
+                  </button>
+                ) : null}
+              </div>
+              <Link href={a.href} className="font-bold text-ink mt-1 inline-block hover:text-accent">
+                {a.title}
+              </Link>
+              <div className="text-xs text-muted mt-1">{a.why}</div>
+            </div>
+            <div className="shrink-0 flex flex-col items-end gap-2">
+              <span className="text-xs text-muted">{a.owner}</span>
+              <Link
+                href={a.href}
+                className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent"
+              >
+                Open
+              </Link>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

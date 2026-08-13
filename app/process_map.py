@@ -14,6 +14,7 @@ from .schemas import (
     BOMItem,
     ProcessBottleneck,
     ProcessLineRef,
+    ProcessReviewAction,
     ProcessStageBucket,
     ProcessStageName,
     ProjectProcessMap,
@@ -49,6 +50,32 @@ STAGE_LABEL: Dict[ProcessStageName, str] = {
     "shipment": "Shipment",
     "site_grn": "Site GRN",
     "delivery": "Delivery",
+}
+
+STAGE_OWNER: Dict[ProcessStageName, str] = {
+    "spec": "Engineering",
+    "pr": "Procurement",
+    "rfq": "Procurement",
+    "quotes": "Procurement",
+    "technical_eval": "Engineering",
+    "award": "Procurement",
+    "po": "Procurement",
+    "shipment": "Expediting",
+    "site_grn": "Site Store",
+    "delivery": "Project Controls",
+}
+
+STAGE_NEXT: Dict[ProcessStageName, str] = {
+    "spec": "Release missing specs so requisitions can start.",
+    "pr": "Raise purchase requisitions for planned lines.",
+    "rfq": "Issue RFQs to the bid list.",
+    "quotes": "Chase outstanding quotes.",
+    "technical_eval": "Complete technical bid evaluation.",
+    "award": "Award and draft the PO.",
+    "po": "Release the PO and confirm manufacturing start.",
+    "shipment": "Clear the shipment bottleneck.",
+    "site_grn": "Confirm GRN at site store.",
+    "delivery": "Close remaining deliveries against the milestone.",
 }
 
 _MOVING_SHIPMENT = {"dispatched", "in_transit", "at_port", "at_customs", "last_mile"}
@@ -245,7 +272,7 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
     risks = list_project_risks(project_id, tenant_id)
     open_risks = sum(1 for r in risks if r.status in {"open", "mitigating"})
 
-    return ProjectProcessMap(
+    mmap = ProjectProcessMap(
         project_id=project_id,
         project_name=project.name,
         generated_at=_now(),
@@ -257,6 +284,8 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
         bottlenecks=bottlenecks,
         risks=risks,
     )
+    mmap.review_actions = build_review_actions(mmap)
+    return mmap
 
 
 def list_process_summaries(tenant_id: str) -> list:
@@ -284,3 +313,63 @@ def list_process_summaries(tenant_id: str) -> list:
         )
     out.sort(key=lambda s: (-s.blocked_total, -s.open_risks, s.project_name))
     return out
+
+
+def build_review_actions(mmap: ProjectProcessMap) -> List[ProcessReviewAction]:
+    """Suggested next steps for a process review — no sign-off, just the pack."""
+    actions: List[ProcessReviewAction] = []
+    covered: set[ProcessStageName] = set()
+    process_href = f"/projects/{mmap.project_id}/process"
+
+    for bn in mmap.bottlenecks:
+        covered.add(bn.stage)
+        bucket = next((s for s in mmap.stages if s.stage == bn.stage), None)
+        blocked_item = next((i for i in (bucket.items if bucket else []) if i.blocked), None)
+        actions.append(
+            ProcessReviewAction(
+                priority="P1",
+                title=f"Unblock {bn.count} line(s) at {STAGE_LABEL[bn.stage]}",
+                why=f"{bn.reason}. {STAGE_NEXT[bn.stage]}",
+                owner=STAGE_OWNER[bn.stage],
+                href=(blocked_item.href if blocked_item else process_href),
+                process_stage=bn.stage,
+            )
+        )
+
+    unmanaged = [
+        r for r in mmap.risks
+        if r.status in {"open", "mitigating"}
+        and (not r.owner.strip() or not r.mitigation.strip())
+        and r.process_stage not in covered
+    ]
+    rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    unmanaged.sort(key=lambda r: (rank.get(r.severity, 9), r.title))
+    for r in unmanaged[:4]:
+        need_owner = not r.owner.strip()
+        actions.append(
+            ProcessReviewAction(
+                priority="P1" if r.severity in {"critical", "high"} else "P2",
+                title=(f"Assign owner: {r.title}" if need_owner else f"Set mitigation: {r.title}"),
+                why=r.detail,
+                owner=r.owner or "Procurement",
+                href=process_href,
+                process_stage=r.process_stage,
+                risk_id=r.risk_id,
+            )
+        )
+
+    if not actions:
+        stuck = next((s for s in mmap.stages if s.current and s.stage != "delivery"), None)
+        if stuck:
+            actions.append(
+                ProcessReviewAction(
+                    priority="P3",
+                    title=f"Progress {stuck.current} line(s) in {stuck.label}",
+                    why=STAGE_NEXT[stuck.stage],
+                    owner=STAGE_OWNER[stuck.stage],
+                    href=process_href,
+                    process_stage=stuck.stage,
+                )
+            )
+    return actions[:6]
+

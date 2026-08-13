@@ -149,3 +149,39 @@ def test_tenant_risk_register_seeds_without_leak(
     assert helios.status_code == 200
     helios_projects = {r["project_id"] for r in helios.json()}
     assert PROJECT not in helios_projects
+
+
+def test_process_map_review_actions_for_blocked_spec(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    res = client.get(f"/api/projects/{PROJECT}/process-map", headers=auth_headers)
+    assert res.status_code == 200
+    actions = res.json()["review_actions"]
+    assert actions
+    spec = next((a for a in actions if a["process_stage"] == "spec"), None)
+    assert spec is not None
+    assert spec["priority"] == "P1"
+    assert spec["owner"] == "Engineering"
+    assert "Unblock" in spec["title"]
+
+
+def test_weekly_plan_includes_process_review(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    res = client.get("/api/weekly-plan", headers=auth_headers)
+    assert res.status_code == 200
+    body = res.json()
+    labels = {k["label"] for k in body["kpi_snapshot"]}
+    assert "Process Blocked" in labels
+    process_items = [i for i in body["items"] if i["category"] == "process"]
+    assert process_items
+    assert any("/process" in (i.get("href") or "") for i in process_items)
+    assert any(PROJECT in ref for i in process_items for ref in i["supporting_refs"])
+
+    helios = client.get("/api/weekly-plan", headers=headers_for_user("helios-buyer-01"))
+    assert helios.status_code == 200
+    helios_refs = [ref for i in helios.json()["items"] for ref in i["supporting_refs"]]
+    assert f"project:{PROJECT}" not in helios_refs
+
