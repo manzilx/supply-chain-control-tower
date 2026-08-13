@@ -342,6 +342,42 @@ def list_process_summaries(tenant_id: str) -> list:
     return out
 
 
+def _review_line(bucket: Optional[ProcessStageBucket]) -> Optional[ProcessLineRef]:
+    items = bucket.items if bucket else []
+    return (
+        next((i for i in items if i.blocked and i.next_action), None)
+        or next((i for i in items if i.next_action), None)
+        or next((i for i in items if i.blocked), None)
+        or (items[0] if items else None)
+    )
+
+
+def _action_from_line(
+    *,
+    priority: str,
+    title: str,
+    why: str,
+    owner: str,
+    href: str,
+    process_stage: Optional[ProcessStageName],
+    line: Optional[ProcessLineRef] = None,
+    risk_id: Optional[str] = None,
+) -> ProcessReviewAction:
+    return ProcessReviewAction(
+        priority=priority,  # type: ignore[arg-type]
+        title=title,
+        why=why,
+        owner=owner,
+        href=href,
+        process_stage=process_stage,
+        risk_id=risk_id,
+        next_action=line.next_action if line else None,
+        bom_item_id=line.bom_item_id if line else None,
+        entity_id=line.entity_id if line else None,
+        code=line.code if line else None,
+    )
+
+
 def build_review_actions(mmap: ProjectProcessMap) -> List[ProcessReviewAction]:
     """Suggested next steps for a process review — no sign-off, just the pack."""
     actions: List[ProcessReviewAction] = []
@@ -351,15 +387,17 @@ def build_review_actions(mmap: ProjectProcessMap) -> List[ProcessReviewAction]:
     for bn in mmap.bottlenecks:
         covered.add(bn.stage)
         bucket = next((s for s in mmap.stages if s.stage == bn.stage), None)
-        blocked_item = next((i for i in (bucket.items if bucket else []) if i.blocked), None)
+        line = _review_line(bucket)
+        href = f"{process_href}?stage={bn.stage}"
         actions.append(
-            ProcessReviewAction(
+            _action_from_line(
                 priority="P1",
                 title=f"Unblock {bn.count} line(s) at {STAGE_LABEL[bn.stage]}",
                 why=f"{bn.reason}. {STAGE_NEXT[bn.stage]}",
                 owner=STAGE_OWNER[bn.stage],
-                href=(blocked_item.href if blocked_item else process_href),
+                href=href,
                 process_stage=bn.stage,
+                line=line,
             )
         )
 
@@ -374,7 +412,7 @@ def build_review_actions(mmap: ProjectProcessMap) -> List[ProcessReviewAction]:
     for r in unmanaged[:4]:
         need_owner = not r.owner.strip()
         actions.append(
-            ProcessReviewAction(
+            _action_from_line(
                 priority="P1" if r.severity in {"critical", "high"} else "P2",
                 title=(f"Assign owner: {r.title}" if need_owner else f"Set mitigation: {r.title}"),
                 why=r.detail,
@@ -388,14 +426,16 @@ def build_review_actions(mmap: ProjectProcessMap) -> List[ProcessReviewAction]:
     if not actions:
         stuck = next((s for s in mmap.stages if s.current and s.stage != "delivery"), None)
         if stuck:
+            line = _review_line(stuck)
             actions.append(
-                ProcessReviewAction(
+                _action_from_line(
                     priority="P3",
                     title=f"Progress {stuck.current} line(s) in {stuck.label}",
                     why=STAGE_NEXT[stuck.stage],
                     owner=STAGE_OWNER[stuck.stage],
-                    href=process_href,
+                    href=f"{process_href}?stage={stuck.stage}",
                     process_stage=stuck.stage,
+                    line=line,
                 )
             )
     return actions[:6]

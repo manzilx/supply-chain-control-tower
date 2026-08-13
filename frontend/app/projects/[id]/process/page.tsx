@@ -187,6 +187,18 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
           <ReviewPanel
             actions={data.review_actions}
             onSelectStage={setStage}
+            canCreatePr={canCreatePr}
+            canIssueRfq={canIssueRfq}
+            canAddQuote={canAddQuote}
+            canAward={canAward}
+            canAdvanceShipment={canAdvanceShipment}
+            creatingPrFor={creatingPrFor}
+            onRequestSpec={setSpecRequestFor}
+            onCreatePr={(id) => void handleCreatePr(id)}
+            onIssueRfq={setIssueRfqFor}
+            onAddQuote={setAddQuoteFor}
+            onAward={setAwardFor}
+            onAdvanceShipment={setAdvanceShipmentFor}
           />
 
           <section className="panel">
@@ -245,66 +257,21 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
                         {item.at_risk ? <span className="badge severity-medium ml-1">at risk</span> : null}
                       </td>
                       <td>
-                        <div className="flex flex-wrap gap-2 justify-end">
-                          {item.next_action === "request_spec" ? (
-                            <button
-                              type="button"
-                              className="btn btn-secondary text-xs py-1"
-                              onClick={() => setSpecRequestFor(item)}
-                            >
-                              Request spec
-                            </button>
-                          ) : null}
-                          {item.next_action === "create_pr" && canCreatePr ? (
-                            <button
-                              type="button"
-                              className="btn btn-secondary text-xs py-1"
-                              disabled={creatingPrFor === item.bom_item_id}
-                              onClick={() => void handleCreatePr(item.bom_item_id)}
-                            >
-                              {creatingPrFor === item.bom_item_id ? "…" : "Create PR"}
-                            </button>
-                          ) : null}
-                          {item.next_action === "issue_rfq" && canIssueRfq && item.entity_id ? (
-                            <button
-                              type="button"
-                              className="btn btn-secondary text-xs py-1"
-                              onClick={() => setIssueRfqFor(item)}
-                            >
-                              Issue RFQ
-                            </button>
-                          ) : null}
-                          {item.next_action === "add_quote" && canAddQuote && item.entity_id ? (
-                            <button
-                              type="button"
-                              className="btn btn-secondary text-xs py-1"
-                              onClick={() => setAddQuoteFor(item)}
-                            >
-                              Add quote
-                            </button>
-                          ) : null}
-                          {item.next_action === "award" && canAward && item.entity_id ? (
-                            <button
-                              type="button"
-                              className="btn btn-secondary text-xs py-1"
-                              onClick={() => setAwardFor(item)}
-                            >
-                              Award
-                            </button>
-                          ) : null}
-                          {item.next_action === "advance_shipment" && canAdvanceShipment && item.entity_id ? (
-                            <button
-                              type="button"
-                              className="btn btn-secondary text-xs py-1"
-                              onClick={() => setAdvanceShipmentFor(item)}
-                            >
-                              Advance shipment
-                            </button>
-                          ) : null}
-                          <Link href={item.href} className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent self-center">
-                            Open
-                          </Link>
-                        </div>
+                        <LineActionButtons
+                          item={item}
+                          canCreatePr={canCreatePr}
+                          canIssueRfq={canIssueRfq}
+                          canAddQuote={canAddQuote}
+                          canAward={canAward}
+                          canAdvanceShipment={canAdvanceShipment}
+                          creatingPrFor={creatingPrFor}
+                          onRequestSpec={setSpecRequestFor}
+                          onCreatePr={(id) => void handleCreatePr(id)}
+                          onIssueRfq={setIssueRfqFor}
+                          onAddQuote={setAddQuoteFor}
+                          onAward={setAwardFor}
+                          onAdvanceShipment={setAdvanceShipmentFor}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -397,12 +364,143 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
   );
 }
 
+function lineFromReview(a: ProcessReviewAction): ProcessLineRef | null {
+  if (!a.bom_item_id) return null;
+  return {
+    bom_item_id: a.bom_item_id,
+    code: a.code ?? a.bom_item_id,
+    description: a.title,
+    href: a.href,
+    blocked: true,
+    at_risk: false,
+    entity_id: a.entity_id,
+    next_action: a.next_action,
+  };
+}
+
+function LineActionButtons({
+  item,
+  canCreatePr,
+  canIssueRfq,
+  canAddQuote,
+  canAward,
+  canAdvanceShipment,
+  creatingPrFor,
+  onRequestSpec,
+  onCreatePr,
+  onIssueRfq,
+  onAddQuote,
+  onAward,
+  onAdvanceShipment,
+}: {
+  item: ProcessLineRef;
+  canCreatePr: boolean;
+  canIssueRfq: boolean;
+  canAddQuote: boolean;
+  canAward: boolean;
+  canAdvanceShipment: boolean;
+  creatingPrFor: string | null;
+  onRequestSpec: (item: ProcessLineRef) => void;
+  onCreatePr: (bomItemId: string) => void;
+  onIssueRfq: (item: ProcessLineRef) => void;
+  onAddQuote: (item: ProcessLineRef) => void;
+  onAward: (item: ProcessLineRef) => void;
+  onAdvanceShipment: (item: ProcessLineRef) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2 justify-end">
+      {item.next_action === "request_spec" ? (
+        <button
+          type="button"
+          className="btn btn-secondary text-xs py-1"
+          onClick={() => onRequestSpec(item)}
+        >
+          Request spec
+        </button>
+      ) : null}
+      {item.next_action === "create_pr" && canCreatePr ? (
+        <button
+          type="button"
+          className="btn btn-secondary text-xs py-1"
+          disabled={creatingPrFor === item.bom_item_id}
+          onClick={() => onCreatePr(item.bom_item_id)}
+        >
+          {creatingPrFor === item.bom_item_id ? "…" : "Create PR"}
+        </button>
+      ) : null}
+      {item.next_action === "issue_rfq" && canIssueRfq && item.entity_id ? (
+        <button
+          type="button"
+          className="btn btn-secondary text-xs py-1"
+          onClick={() => onIssueRfq(item)}
+        >
+          Issue RFQ
+        </button>
+      ) : null}
+      {item.next_action === "add_quote" && canAddQuote && item.entity_id ? (
+        <button
+          type="button"
+          className="btn btn-secondary text-xs py-1"
+          onClick={() => onAddQuote(item)}
+        >
+          Add quote
+        </button>
+      ) : null}
+      {item.next_action === "award" && canAward && item.entity_id ? (
+        <button
+          type="button"
+          className="btn btn-secondary text-xs py-1"
+          onClick={() => onAward(item)}
+        >
+          Award
+        </button>
+      ) : null}
+      {item.next_action === "advance_shipment" && canAdvanceShipment && item.entity_id ? (
+        <button
+          type="button"
+          className="btn btn-secondary text-xs py-1"
+          onClick={() => onAdvanceShipment(item)}
+        >
+          Advance shipment
+        </button>
+      ) : null}
+      <Link href={item.href} className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent self-center">
+        Open
+      </Link>
+    </div>
+  );
+}
+
 function ReviewPanel({
   actions,
   onSelectStage,
+  canCreatePr,
+  canIssueRfq,
+  canAddQuote,
+  canAward,
+  canAdvanceShipment,
+  creatingPrFor,
+  onRequestSpec,
+  onCreatePr,
+  onIssueRfq,
+  onAddQuote,
+  onAward,
+  onAdvanceShipment,
 }: {
   actions: ProcessReviewAction[];
   onSelectStage: (stage: ProcessStageName) => void;
+  canCreatePr: boolean;
+  canIssueRfq: boolean;
+  canAddQuote: boolean;
+  canAward: boolean;
+  canAdvanceShipment: boolean;
+  creatingPrFor: string | null;
+  onRequestSpec: (item: ProcessLineRef) => void;
+  onCreatePr: (bomItemId: string) => void;
+  onIssueRfq: (item: ProcessLineRef) => void;
+  onAddQuote: (item: ProcessLineRef) => void;
+  onAward: (item: ProcessLineRef) => void;
+  onAdvanceShipment: (item: ProcessLineRef) => void;
 }) {
   if (!actions.length) return null;
   return (
@@ -412,39 +510,69 @@ function ReviewPanel({
         <div className="text-xs text-muted">{actions.length} next action{actions.length === 1 ? "" : "s"}</div>
       </div>
       <div className="space-y-2">
-        {actions.map((a) => (
-          <div key={`${a.title}-${a.risk_id ?? a.process_stage ?? ""}`} className="panel-sm flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={`badge ${a.priority === "P1" ? "severity-critical" : a.priority === "P2" ? "severity-high" : "severity-medium"}`}>
-                  {a.priority}
-                </span>
-                {a.process_stage ? (
-                  <button
-                    type="button"
-                    className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-muted hover:text-accent"
-                    onClick={() => onSelectStage(a.process_stage as ProcessStageName)}
-                  >
-                    {a.process_stage.replace(/_/g, " ")}
-                  </button>
-                ) : null}
+        {actions.map((a) => {
+          const line = lineFromReview(a);
+          return (
+            <div key={`${a.title}-${a.risk_id ?? a.process_stage ?? ""}`} className="panel-sm flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`badge ${a.priority === "P1" ? "severity-critical" : a.priority === "P2" ? "severity-high" : "severity-medium"}`}>
+                    {a.priority}
+                  </span>
+                  {a.process_stage ? (
+                    <button
+                      type="button"
+                      className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-muted hover:text-accent"
+                      onClick={() => onSelectStage(a.process_stage as ProcessStageName)}
+                    >
+                      {a.process_stage.replace(/_/g, " ")}
+                    </button>
+                  ) : null}
+                  {a.code ? (
+                    <span className="font-mono text-[0.65rem] text-muted">{a.code}</span>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="font-bold text-ink mt-1 inline-block hover:text-accent text-left"
+                  onClick={() => {
+                    if (a.process_stage) onSelectStage(a.process_stage);
+                  }}
+                >
+                  {a.title}
+                </button>
+                <div className="text-xs text-muted mt-1">{a.why}</div>
               </div>
-              <Link href={a.href} className="font-bold text-ink mt-1 inline-block hover:text-accent">
-                {a.title}
-              </Link>
-              <div className="text-xs text-muted mt-1">{a.why}</div>
+              <div className="shrink-0 flex flex-col items-end gap-2">
+                <span className="text-xs text-muted">{a.owner}</span>
+                {line ? (
+                  <LineActionButtons
+                    item={line}
+                    canCreatePr={canCreatePr}
+                    canIssueRfq={canIssueRfq}
+                    canAddQuote={canAddQuote}
+                    canAward={canAward}
+                    canAdvanceShipment={canAdvanceShipment}
+                    creatingPrFor={creatingPrFor}
+                    onRequestSpec={onRequestSpec}
+                    onCreatePr={onCreatePr}
+                    onIssueRfq={onIssueRfq}
+                    onAddQuote={onAddQuote}
+                    onAward={onAward}
+                    onAdvanceShipment={onAdvanceShipment}
+                  />
+                ) : (
+                  <Link
+                    href={a.href}
+                    className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent"
+                  >
+                    Open
+                  </Link>
+                )}
+              </div>
             </div>
-            <div className="shrink-0 flex flex-col items-end gap-2">
-              <span className="text-xs text-muted">{a.owner}</span>
-              <Link
-                href={a.href}
-                className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent"
-              >
-                Open
-              </Link>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

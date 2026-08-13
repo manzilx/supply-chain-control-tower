@@ -732,6 +732,10 @@ class ProcessReviewAction(BaseModel):
     href: str
     process_stage: Optional[ProcessStageName] = None
     risk_id: Optional[str] = None
+    next_action: Optional[ProcessNextAction] = None
+    bom_item_id: Optional[str] = None
+    entity_id: Optional[str] = None
+    code: Optional[str] = None
 
 
 class ManagedRisk(BaseModel):

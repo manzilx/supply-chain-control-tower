@@ -322,6 +322,10 @@ export type ProcessReviewAction = {
   href: string;
   process_stage?: ProcessStageName | null;
   risk_id?: string | null;
+  next_action?: ProcessNextAction | null;
+  bom_item_id?: string | null;
+  entity_id?: string | null;
+  code?: string | null;
 };
 
 export type ManagedRisk = {

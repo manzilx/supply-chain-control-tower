@@ -164,6 +164,10 @@ def test_process_map_review_actions_for_blocked_spec(
     assert spec["priority"] == "P1"
     assert spec["owner"] == "Engineering"
     assert "Unblock" in spec["title"]
+    assert spec["next_action"] == "request_spec"
+    assert spec["bom_item_id"]
+    assert spec["code"]
+    assert spec["href"].endswith("/process?stage=spec")
 
 
 def test_process_line_next_actions(
