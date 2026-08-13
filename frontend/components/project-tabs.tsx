@@ -14,6 +14,7 @@ export function ProjectTabs({ projectId }: Props) {
     { href: base, label: "Overview" },
     { href: `${base}/bom`, label: "BOM" },
     { href: `${base}/plan`, label: "Procurement Plan" },
+    { href: `${base}/process`, label: "Process" },
   ];
 
   return (

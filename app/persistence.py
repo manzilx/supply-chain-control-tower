@@ -332,7 +332,27 @@ def _restore_approvals() -> None:
         log.warning("approvals restore skipped: %s", e)
 
 
-_CRITICAL_FILES = ("approvals.json", "audit.json", "vendors.json", "sourcing.json", ".version")
+def _snap_risks() -> None:
+    from . import risk_register
+    _path("risks.json").write_text(
+        json.dumps(risk_register.dump(), default=str, indent=0)
+    )
+
+
+def _restore_risks() -> None:
+    p = _path("risks.json")
+    if not p.exists():
+        return
+    from . import risk_register
+    try:
+        risk_register.load(json.loads(p.read_text()))
+    except Exception as e:  # noqa: BLE001
+        log.warning("risk_register restore skipped: %s", e)
+
+
+_CRITICAL_FILES = (
+    "approvals.json", "audit.json", "vendors.json", "sourcing.json", "risks.json", ".version",
+)
 
 
 def flush_critical() -> dict:
@@ -350,6 +370,7 @@ def flush_critical() -> dict:
             _snap_audit()
             _snap_vendors()
             _snap_sourcing()
+            _snap_risks()
             _path(".version").write_text(str(SNAPSHOT_VERSION))
             total_size = sum(
                 _path(name).stat().st_size
@@ -364,7 +385,7 @@ def flush_critical() -> dict:
                 "ok": True,
                 "bytes": total_size,
                 "at": _last_snapshot_at.isoformat(),
-                "stores": ["approvals", "audit", "vendors", "sourcing"],
+                "stores": ["approvals", "audit", "vendors", "sourcing", "risks"],
             }
         except Exception as e:  # noqa: BLE001
             _last_error = f"{type(e).__name__}: {e}"
@@ -387,6 +408,7 @@ def snapshot_all() -> dict:
             _snap_sap()
             _snap_vendors()
             _snap_approvals()
+            _snap_risks()
             _path(".version").write_text(str(SNAPSHOT_VERSION))
             total_size = sum(p.stat().st_size for p in STATE_DIR.iterdir() if p.is_file())
             _last_snapshot_at = datetime.now(timezone.utc)
@@ -420,6 +442,7 @@ def restore_all() -> dict:
             _restore_sap()
             _restore_vendors()
             _restore_approvals()
+            _restore_risks()
             log.info("snapshot restored from %s", STATE_DIR)
             return {"restored": True, "from": str(STATE_DIR)}
         except Exception as e:  # noqa: BLE001

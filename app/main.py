@@ -71,6 +71,10 @@ from .schemas import (
     ProcurementPlan,
     Project,
     ProjectProgress,
+    ProjectProcessMap,
+    CreateManagedRiskRequest,
+    ManagedRisk,
+    PatchManagedRiskRequest,
     SearchIndex,
     SearchIndexItem,
     PurchaseRequisition,
@@ -405,6 +409,61 @@ async def api_procurement_plan(
     if not plan:
         raise HTTPException(status_code=404, detail="Project not found")
     return plan
+
+
+@app.get("/api/projects/{project_id}/process-map", response_model=ProjectProcessMap)
+async def api_project_process_map(
+    project_id: str,
+    user: Annotated[User, Depends(current_user)],
+) -> ProjectProcessMap:
+    from .process_map import build_process_map
+    mmap = build_process_map(project_id, tenant_id=user.tenant_id)
+    if not mmap:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return mmap
+
+
+@app.get("/api/projects/{project_id}/risks", response_model=list[ManagedRisk])
+async def api_list_project_risks(
+    project_id: str,
+    user: Annotated[User, Depends(current_user)],
+) -> list[ManagedRisk]:
+    from .risk_register import list_project_risks, seed_project
+    if not get_project(project_id, tenant_id=user.tenant_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    seed_project(project_id, user.tenant_id)
+    return list_project_risks(project_id, user.tenant_id)
+
+
+@app.post("/api/projects/{project_id}/risks", response_model=ManagedRisk)
+async def api_create_project_risk(
+    project_id: str,
+    body: CreateManagedRiskRequest,
+    user: Annotated[User, Depends(require_perm("risk", "update"))],
+) -> ManagedRisk:
+    from .risk_register import create_manual
+    if not get_project(project_id, tenant_id=user.tenant_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    return create_manual(project_id, user.tenant_id, body)
+
+
+@app.patch("/api/projects/{project_id}/risks/{risk_id}", response_model=ManagedRisk)
+async def api_patch_project_risk(
+    project_id: str,
+    risk_id: str,
+    body: PatchManagedRiskRequest,
+    user: Annotated[User, Depends(require_perm("risk", "update"))],
+) -> ManagedRisk:
+    from .risk_register import get_risk, patch_risk
+    if not get_project(project_id, tenant_id=user.tenant_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    existing = get_risk(user.tenant_id, risk_id)
+    if existing is None or existing.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Risk not found")
+    updated = patch_risk(user.tenant_id, risk_id, body)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Risk not found")
+    return updated
 
 
 @app.post("/api/projects/{project_id}/bom/upload", response_model=BomUploadResult)

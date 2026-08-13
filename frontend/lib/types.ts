@@ -271,6 +271,97 @@ export type ProjectProgress = {
   budget_value_usd: number;
 };
 
+export type ProcessStageName =
+  | "spec"
+  | "pr"
+  | "rfq"
+  | "quotes"
+  | "technical_eval"
+  | "award"
+  | "po"
+  | "shipment"
+  | "site_grn"
+  | "delivery";
+
+export type ManagedRiskStatus = "open" | "mitigating" | "accepted" | "closed";
+
+export type ProcessLineRef = {
+  bom_item_id: string;
+  code: string;
+  description: string;
+  status?: string | null;
+  href: string;
+  blocked: boolean;
+  at_risk: boolean;
+  entity_id?: string | null;
+};
+
+export type ProcessStageBucket = {
+  stage: ProcessStageName;
+  label: string;
+  current: number;
+  done: number;
+  blocked: number;
+  at_risk: number;
+  items: ProcessLineRef[];
+};
+
+export type ProcessBottleneck = {
+  stage: ProcessStageName;
+  count: number;
+  reason: string;
+};
+
+export type ManagedRisk = {
+  risk_id: string;
+  tenant_id: string;
+  project_id: string;
+  signal_key?: string | null;
+  source: "live" | "manual";
+  live: boolean;
+  title: string;
+  detail: string;
+  severity: Severity;
+  category: string;
+  process_stage?: ProcessStageName | null;
+  href?: string | null;
+  status: ManagedRiskStatus;
+  owner: string;
+  mitigation: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateManagedRiskRequest = {
+  title: string;
+  detail?: string;
+  severity?: Severity;
+  category?: string;
+  process_stage?: ProcessStageName | null;
+  owner?: string;
+  mitigation?: string;
+  href?: string | null;
+};
+
+export type PatchManagedRiskRequest = {
+  status?: ManagedRiskStatus | null;
+  owner?: string | null;
+  mitigation?: string | null;
+};
+
+export type ProjectProcessMap = {
+  project_id: string;
+  project_name: string;
+  generated_at: string;
+  bom_total: number;
+  blocked_total: number;
+  at_risk_total: number;
+  open_risks: number;
+  stages: ProcessStageBucket[];
+  bottlenecks: ProcessBottleneck[];
+  risks: ManagedRisk[];
+};
+
 export type BOMItem = {
   bom_item_id: string;
   project_id: string;

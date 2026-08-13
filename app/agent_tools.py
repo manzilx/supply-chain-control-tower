@@ -229,6 +229,29 @@ def _summarize_plan(plan: Any) -> str:
     )
 
 
+def _tool_process_map(args: dict) -> Any:
+    from .process_map import build_process_map
+    tid = _tenant_id() or ""
+    pid = args.get("project_id", "")
+    if not pid:
+        projects = list_projects(tenant_id=tid)
+        if projects:
+            pid = projects[0].project_id
+    return build_process_map(pid, tenant_id=tid)
+
+
+def _summarize_process_map(mmap: Any) -> str:
+    if not mmap:
+        return "Project not found."
+    stuck = ", ".join(
+        f"{b.current} in {b.label}" for b in mmap.stages if b.current
+    ) or "all delivered"
+    return (
+        f"{mmap.project_name}: {mmap.bom_total} BOM lines · {stuck}; "
+        f"{mmap.blocked_total} blocked, {mmap.open_risks} open risks."
+    )
+
+
 def _tool_projects(_: dict) -> Any:
     return list_projects(tenant_id=_tenant_id())
 
@@ -454,6 +477,18 @@ TOOLS: Dict[str, Tool] = {
         persona="planning",
         run=_tool_procurement_plan,
         summarize=_summarize_plan,
+    ),
+    "project_process_map": Tool(
+        name="project_process_map",
+        description="Per-project SCM process map: BOM lines by stage (spec→delivery) plus open risks.",
+        input_schema={
+            "type": "object",
+            "properties": {"project_id": {"type": "string"}},
+            "required": [],
+        },
+        persona="planning",
+        run=_tool_process_map,
+        summarize=_summarize_process_map,
     ),
     "list_projects": Tool(
         name="list_projects",
