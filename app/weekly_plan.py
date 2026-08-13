@@ -271,8 +271,8 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
                         )
                     )
 
-    # 2b. Process review — blocked stages and unmanaged open risks
-    from .process_map import list_process_summaries
+    # 2b. Process review — blocked stages, unmanaged open risks, aging backlog
+    from .process_map import AGING_DAYS, list_process_summaries
 
     summaries = list_process_summaries(tenant_id or "")
     process_blocked = sum(s.blocked_total for s in summaries)
@@ -291,11 +291,23 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
             priority = "P1"
             due = 2
             confidence = 90
-        else:
+        elif summary.open_risks:
             title = (
                 f"Review {summary.project_name}: {summary.open_risks} open process risk(s)"
             )
             why = "Open risks still need an owner or mitigation before the next review."
+            priority = "P2"
+            due = 5
+            confidence = 80
+        else:
+            title = (
+                f"Review {summary.project_name}: {summary.aging_total} line(s) "
+                f"aging ≥{AGING_DAYS}d"
+            )
+            why = (
+                summary.bottleneck_reason
+                or f"{summary.aging_total} BOM line(s) have sat in stage for 7+ days."
+            )
             priority = "P2"
             due = 5
             confidence = 80

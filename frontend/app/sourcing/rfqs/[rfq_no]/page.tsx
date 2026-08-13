@@ -152,8 +152,7 @@ export default function RFQPage({ params }: { params: { rfq_no: string } }) {
                 toast.success("Quote recorded");
               }
               quotes.reload();
-              comparison.reload();
-              tbe.reload();
+              reloadEvaluations();
               rfq.reload();
             }}
           />

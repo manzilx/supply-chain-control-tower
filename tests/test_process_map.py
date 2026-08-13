@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.process_map import AGING_DAYS, STAGE_ORDER
@@ -410,6 +411,8 @@ def test_weekly_plan_includes_process_review(
     body = res.json()
     labels = {k["label"] for k in body["kpi_snapshot"]}
     assert "Process Blocked" in labels
+    kpi = next(k for k in body["kpi_snapshot"] if k["label"] == "Process Blocked")
+    assert "aging" in kpi["value"]
     process_items = [i for i in body["items"] if i["category"] == "process"]
     assert process_items
     assert any("/process" in (i.get("href") or "") for i in process_items)
@@ -419,6 +422,45 @@ def test_weekly_plan_includes_process_review(
     assert helios.status_code == 200
     helios_refs = [ref for i in helios.json()["items"] for ref in i["supporting_refs"]]
     assert f"project:{PROJECT}" not in helios_refs
+
+
+def test_weekly_plan_aging_only_copy(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app._cache import invalidate_all
+    from app.schemas import ProjectProcessSummary
+
+    fake = ProjectProcessSummary(
+        project_id="PRJ-AGING-ONLY",
+        project_name="Aging Only Plant",
+        bom_total=8,
+        blocked_total=0,
+        at_risk_total=0,
+        aging_total=3,
+        open_risks=0,
+        bottleneck_stage="pr",
+        bottleneck_reason=f"3 line(s) aging ≥{AGING_DAYS}d at PR",
+        current_by_stage={"pr": 3},
+    )
+    monkeypatch.setattr(
+        "app.process_map.list_process_summaries",
+        lambda tenant_id: [fake],
+    )
+    invalidate_all()
+    res = client.get("/api/weekly-plan", headers=auth_headers)
+    assert res.status_code == 200
+    process_items = [i for i in res.json()["items"] if i["category"] == "process"]
+    assert process_items
+    assert all("open process risk" not in i["title"] for i in process_items)
+    aging_item = next(i for i in process_items if "aging ≥7d" in i["title"])
+    assert aging_item["priority"] == "P2"
+    assert "Aging Only Plant" in aging_item["title"]
+    assert "3" in aging_item["title"]
+    assert aging_item["why"] == fake.bottleneck_reason
+    kpi = next(k for k in res.json()["kpi_snapshot"] if k["label"] == "Process Blocked")
+    assert "3 aging" in kpi["value"]
 
 
 def test_search_index_includes_process_and_risks(
