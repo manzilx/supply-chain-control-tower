@@ -186,6 +186,14 @@ def test_process_line_next_actions(
     for item in stages["delivery"]["items"]:
         assert item["next_action"] is None
 
+    for item in stages["po"]["items"]:
+        assert item["next_action"] == "advance_shipment"
+        assert item.get("entity_id")
+
+    for item in stages["shipment"]["items"]:
+        assert item["next_action"] == "advance_shipment"
+        assert item.get("entity_id")
+
 
 def test_create_pr_sets_issue_rfq_action(
     client: TestClient,
@@ -297,7 +305,27 @@ def test_create_pr_sets_issue_rfq_action(
         if i["bom_item_id"] == item["bom_item_id"]
     )
     assert after_award[0] == "po"
-    assert after_award[1]["next_action"] is None
+    assert after_award[1]["next_action"] == "advance_shipment"
+    po_no = awarded.json()["po"]["po_no"]
+    assert after_award[1]["entity_id"] == po_no
+
+    dispatched = client.post(
+        f"/api/logistics/shipments/{po_no}/events",
+        headers=headers_for_user("arcforge-head-01"),
+        json={"stage": "dispatched", "note": "Process map dispatch"},
+    )
+    assert dispatched.status_code == 200
+    sixth = client.get(f"/api/projects/{PROJECT}/process-map", headers=auth_headers)
+    assert sixth.status_code == 200
+    after_ship = next(
+        (s["stage"], i)
+        for s in sixth.json()["stages"]
+        for i in s["items"]
+        if i["bom_item_id"] == item["bom_item_id"]
+    )
+    assert after_ship[0] == "shipment"
+    assert after_ship[1]["next_action"] == "advance_shipment"
+    assert after_ship[1]["entity_id"] == po_no
 
 
 def test_weekly_plan_includes_process_review(

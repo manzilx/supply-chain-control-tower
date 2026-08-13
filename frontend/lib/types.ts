@@ -284,7 +284,7 @@ export type ProcessStageName =
   | "delivery";
 
 export type ManagedRiskStatus = "open" | "mitigating" | "accepted" | "closed";
-export type ProcessNextAction = "request_spec" | "create_pr" | "issue_rfq" | "add_quote" | "award";
+export type ProcessNextAction = "request_spec" | "create_pr" | "issue_rfq" | "add_quote" | "award" | "advance_shipment";
 
 export type ProcessLineRef = {
   bom_item_id: string;
@@ -1007,6 +1007,7 @@ export type Shipment = {
   bottleneck?: string | null;
   slack_days?: number | null;
   events: ShipmentEvent[];
+  project_id?: string | null;
 };
 
 export type LogisticsSummary = {

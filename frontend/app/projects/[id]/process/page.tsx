@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/page-header";
 import { ProjectTabs } from "@/components/project-tabs";
 import { SpecRequestModal } from "@/components/spec-request-modal";
 import { AddQuoteModal } from "@/components/add-quote-form";
+import { AdvanceShipmentModal } from "@/components/advance-shipment-form";
 import { AwardModal } from "@/components/award-form";
 import { IssueRfqModal } from "@/components/issue-rfq-form";
 import {
@@ -58,6 +59,7 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
   const canIssueRfq = hasPerm("rfq", "create");
   const canAddQuote = hasPerm("quote", "create");
   const canAward = hasPerm("award", "create");
+  const canAdvanceShipment = hasPerm("shipment_event", "create");
   const map = useAsync(() => fetchProcessMap(params.id), [params.id]);
   const qStage = searchParams.get("stage");
   const queryStage = STAGES.includes(qStage as ProcessStageName)
@@ -73,6 +75,7 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
   const [issueRfqFor, setIssueRfqFor] = useState<ProcessLineRef | null>(null);
   const [addQuoteFor, setAddQuoteFor] = useState<ProcessLineRef | null>(null);
   const [awardFor, setAwardFor] = useState<ProcessLineRef | null>(null);
+  const [advanceShipmentFor, setAdvanceShipmentFor] = useState<ProcessLineRef | null>(null);
 
   const data = map.data;
   const selected: ProcessStageBucket | undefined = data?.stages.find(
@@ -147,7 +150,7 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
       <PageHeader
         eyebrow={params.id}
         title={data?.project_name ?? "SCM Process"}
-        description="Live BOM→delivery map for this project. Request a spec, raise a PR, issue an RFQ, capture a quote, or award from a stage, then manage the risk register."
+        description="Live BOM→delivery map for this project. Request a spec, raise a PR, issue an RFQ, capture a quote, award, or advance a shipment from a stage, then manage the risk register."
       />
       <ProjectTabs projectId={params.id} />
 
@@ -289,6 +292,15 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
                               Award
                             </button>
                           ) : null}
+                          {item.next_action === "advance_shipment" && canAdvanceShipment && item.entity_id ? (
+                            <button
+                              type="button"
+                              className="btn btn-secondary text-xs py-1"
+                              onClick={() => setAdvanceShipmentFor(item)}
+                            >
+                              Advance shipment
+                            </button>
+                          ) : null}
                           <Link href={item.href} className="text-[0.62rem] uppercase tracking-[0.1em] font-bold text-accent self-center">
                             Open
                           </Link>
@@ -366,6 +378,18 @@ export default function ProcessPage({ params }: { params: { id: string } }) {
               setAwardFor(null);
               map.reload();
             }
+          }}
+        />
+      ) : null}
+      {advanceShipmentFor?.entity_id ? (
+        <AdvanceShipmentModal
+          poRef={advanceShipmentFor.entity_id}
+          code={advanceShipmentFor.code}
+          onClose={() => setAdvanceShipmentFor(null)}
+          onAdvanced={(stage) => {
+            toast.success(`Advanced to ${stage.replace(/_/g, " ")}`);
+            setAdvanceShipmentFor(null);
+            map.reload();
           }}
         />
       ) : null}

@@ -693,7 +693,7 @@ ProcessStageName = Literal[
 ]
 ManagedRiskStatus = Literal["open", "mitigating", "accepted", "closed"]
 ManagedRiskSource = Literal["live", "manual"]
-ProcessNextAction = Literal["request_spec", "create_pr", "issue_rfq", "add_quote", "award"]
+ProcessNextAction = Literal["request_spec", "create_pr", "issue_rfq", "add_quote", "award", "advance_shipment"]
 
 
 class ProcessLineRef(BaseModel):
@@ -1117,6 +1117,7 @@ class Shipment(BaseModel):
     bottleneck: Optional[str] = None
     slack_days: Optional[int] = None
     events: List[ShipmentEvent]
+    project_id: Optional[str] = None
 
 
 class LogisticsSummary(BaseModel):

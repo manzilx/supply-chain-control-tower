@@ -95,7 +95,9 @@ def _href(stage: ProcessStageName, project_id: str, pr: Optional[PurchaseRequisi
         return f"/sourcing/prs/{pr.pr_no}", pr.pr_no
     if stage in {"po", "shipment", "site_grn"} and po:
         if stage == "shipment":
-            return "/logistics", po.po_no
+            return f"/logistics?po={po.po_no}", po.po_no
+        if stage == "site_grn":
+            return "/store/grns", po.po_no
         return "/pos", po.po_no
     return f"/projects/{project_id}/bom", None
 
@@ -106,6 +108,7 @@ def _next_action(
     pr: Optional[PurchaseRequisition],
     rfq: Optional[RFQ] = None,
     quotes_n: int = 0,
+    po: Optional[SourcingPO] = None,
 ) -> Optional[ProcessNextAction]:
     if stage == "spec" and item.status == "spec_missing":
         return "request_spec"
@@ -117,6 +120,8 @@ def _next_action(
         return "award"
     if stage in {"rfq", "quotes"} and rfq is not None:
         return "add_quote"
+    if stage in {"po", "shipment"} and po is not None:
+        return "advance_shipment"
     return None
 
 
@@ -247,7 +252,7 @@ def build_process_map(project_id: str, tenant_id: str) -> Optional[ProjectProces
             blocked=blocked,
             at_risk=at_risk,
             entity_id=entity_id,
-            next_action=_next_action(stage, item, pr, rfq, quotes_n),
+            next_action=_next_action(stage, item, pr, rfq, quotes_n, po),
         )
         buckets[stage].append(ref)
         current_idx[item.bom_item_id] = _INDEX[stage]

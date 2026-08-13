@@ -257,6 +257,7 @@ def _shipment_from_scenario(po: PurchaseOrder, suppliers: Dict[str, SupplierReco
         bottleneck=bottleneck,
         slack_days=slack,
         events=list(_events.get(po.po_number, [])),
+        project_id=None,
     )
 
 
@@ -302,6 +303,7 @@ def _shipment_from_sourcing(po: SourcingPO, suppliers: Dict[str, SupplierRecord]
         bottleneck=bottleneck,
         slack_days=slack,
         events=list(_events.get(po.po_no, [])),
+        project_id=po.project_id,
     )
 
 
