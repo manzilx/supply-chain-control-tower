@@ -47,6 +47,10 @@ import type {
   IngestCommitReply,
   IngestPreviewReply,
   SearchIndex,
+  CreateManagedRiskRequest,
+  ManagedRisk,
+  PatchManagedRiskRequest,
+  ProjectProcessMap,
   SiteStoreOut,
   StockBalance,
   SupplierRecord,
@@ -226,6 +230,34 @@ export function fetchBom(id: string): Promise<BOMItem[]> {
 export function fetchProcurementPlan(id: string): Promise<ProcurementPlan> {
   return getJson<ProcurementPlan>(
     `/api/projects/${encodeURIComponent(id)}/procurement-plan`,
+  );
+}
+
+export function fetchProcessMap(id: string): Promise<ProjectProcessMap> {
+  return getJson<ProjectProcessMap>(
+    `/api/projects/${encodeURIComponent(id)}/process-map`,
+  );
+}
+
+export function fetchProjectRisks(id: string): Promise<ManagedRisk[]> {
+  return getJson<ManagedRisk[]>(`/api/projects/${encodeURIComponent(id)}/risks`);
+}
+
+export function createProjectRisk(
+  id: string,
+  body: CreateManagedRiskRequest,
+): Promise<ManagedRisk> {
+  return postJson<ManagedRisk>(`/api/projects/${encodeURIComponent(id)}/risks`, body);
+}
+
+export function patchProjectRisk(
+  projectId: string,
+  riskId: string,
+  body: PatchManagedRiskRequest,
+): Promise<ManagedRisk> {
+  return patchJson<ManagedRisk>(
+    `/api/projects/${encodeURIComponent(projectId)}/risks/${encodeURIComponent(riskId)}`,
+    body,
   );
 }
 

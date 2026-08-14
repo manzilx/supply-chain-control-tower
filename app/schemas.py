@@ -685,6 +685,93 @@ class TraceabilityChain(BaseModel):
     events_count: int
 
 
+# --- Per-project SCM process map + risk register -----------------------------
+
+ProcessStageName = Literal[
+    "spec", "pr", "rfq", "quotes", "technical_eval",
+    "award", "po", "shipment", "site_grn", "delivery",
+]
+ManagedRiskStatus = Literal["open", "mitigating", "accepted", "closed"]
+ManagedRiskSource = Literal["live", "manual"]
+
+
+class ProcessLineRef(BaseModel):
+    bom_item_id: str
+    code: str
+    description: str
+    status: Optional[str] = None
+    href: str
+    blocked: bool = False
+    at_risk: bool = False
+    entity_id: Optional[str] = None
+
+
+class ProcessStageBucket(BaseModel):
+    stage: ProcessStageName
+    label: str
+    current: int
+    done: int
+    blocked: int
+    at_risk: int
+    items: List[ProcessLineRef] = Field(default_factory=list)
+
+
+class ProcessBottleneck(BaseModel):
+    stage: ProcessStageName
+    count: int
+    reason: str
+
+
+class ManagedRisk(BaseModel):
+    risk_id: str
+    tenant_id: str
+    project_id: str
+    signal_key: Optional[str] = None
+    source: ManagedRiskSource = "live"
+    live: bool = True
+    title: str
+    detail: str
+    severity: Severity
+    category: str
+    process_stage: Optional[ProcessStageName] = None
+    href: Optional[str] = None
+    status: ManagedRiskStatus = "open"
+    owner: str = ""
+    mitigation: str = ""
+    created_at: datetime
+    updated_at: datetime
+
+
+class CreateManagedRiskRequest(BaseModel):
+    title: str
+    detail: str = ""
+    severity: Severity = "medium"
+    category: str = "process"
+    process_stage: Optional[ProcessStageName] = None
+    owner: str = ""
+    mitigation: str = ""
+    href: Optional[str] = None
+
+
+class PatchManagedRiskRequest(BaseModel):
+    status: Optional[ManagedRiskStatus] = None
+    owner: Optional[str] = None
+    mitigation: Optional[str] = None
+
+
+class ProjectProcessMap(BaseModel):
+    project_id: str
+    project_name: str
+    generated_at: datetime
+    bom_total: int
+    blocked_total: int
+    at_risk_total: int
+    open_risks: int
+    stages: List[ProcessStageBucket]
+    bottlenecks: List[ProcessBottleneck] = Field(default_factory=list)
+    risks: List[ManagedRisk] = Field(default_factory=list)
+
+
 class Award(BaseModel):
     award_id: str
     tenant_id: str = "arcforge"
