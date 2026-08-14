@@ -128,7 +128,9 @@ export function WeeklyPlanView({ plan, loading, error, compact = false }: Props)
             <div className="text-[0.65rem] uppercase tracking-[0.14em] text-accent font-bold">
               AI synthesis
             </div>
-            <span className="text-[0.6rem] uppercase tracking-[0.14em] text-muted">via grok</span>
+            <span className="text-[0.6rem] uppercase tracking-[0.14em] text-muted">
+              {plan.narrative_source === "deepseek" ? "via deepseek" : "via AI"}
+            </span>
           </div>
           <div className="text-sm text-ink/90 whitespace-pre-wrap leading-relaxed">
             {plan.synthesized_narrative}

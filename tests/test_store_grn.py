@@ -2,7 +2,7 @@
 degrade paths, office/device confirm parity, revocation, RBAC scoping, and
 the downstream (ledger/PO/audit/expediting) effects of a confirmed GRN.
 
-XAI_API_KEY is popped for the whole module so every GRN takes the
+LLM keys are popped for the whole module so every GRN takes the
 extraction-off ("skipped") path: matching.apply_bands() runs synchronously
 inside create_from_sync(), so there is nothing async to await in a test.
 """
@@ -32,6 +32,7 @@ def _no_xai_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Extraction must always take the LLM-off path so matching runs
     synchronously and deterministically for every test in this module."""
     monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
 
 
 # --- Shared helpers -----------------------------------------------------------
@@ -805,7 +806,8 @@ def test_extraction_result_discarded_when_confirm_lands_first(
     device_headers, _ = enrol(client, admin_headers, store_id)
 
     # This one GRN takes the extraction-on path (the module default is off).
-    monkeypatch.setenv("XAI_API_KEY", "test-key")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("DEEPSEEK_VISION", "1")
     sync_res = sync_grn(client, device_headers, lines=[
         {"line_no": 1, "description_raw": "Race widget", "code": f"RACE-{uuid4().hex[:8]}",
          "qty_received": 3.0, "uom_raw": "EA"},

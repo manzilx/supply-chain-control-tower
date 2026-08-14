@@ -403,6 +403,7 @@ def draft_followup_email(
 
     # Audit
     from .audit import emit
+    from .llm import llm_source
     emit(
         action="ai_generated" if llm_body else "created",
         entity_kind="ai_brief",
@@ -411,9 +412,9 @@ def draft_followup_email(
         summary=(
             f"Follow-up email drafted for {item.po_number} ({item.supplier_name}) "
             f"tone={request.tone}"
-            + (" via grok" if llm_body else " via template")
+            + (f" via {llm_source()}" if llm_body else " via template")
         ),
-        actor="grok" if llm_body else "system",
+        actor=llm_source() if llm_body else "system",
         source="ai" if llm_body else "api",
         tenant_id=tenant_id or "",
         po_no=item.po_number,

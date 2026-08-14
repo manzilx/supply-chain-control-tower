@@ -1,17 +1,17 @@
-"""Shared LLM wrapper for single-turn prose generation.
+"""Shared LLM wrapper — DeepSeek only.
 
-Every AI feature in the app (award rationale, follow-up emails, vendor briefings,
-risk mitigations, simulation narrative, weekly-plan synthesis, BOM auto-fill,
-spec request, /api/explain) builds on top of this module.
+Every AI feature (award rationale, follow-up emails, vendor briefings,
+risk mitigations, simulation brief, weekly-plan synthesis, BOM auto-fill,
+spec request, /api/explain) goes through this module.
 
-Tool-calling lives in app/agent.py — this is the boring "give me prose" path.
+Tool-calling lives in app/agent.py.
 
-Design:
-- Reads XAI_API_KEY at call time (so env changes take effect without restart)
-- Returns None on any failure → caller falls back to its template
-- Optional JSON mode for features that need structured output
-- All requests are stateless (no caching here; the wrapper is the seam if we
-  want to add it later)
+DEEPSEEK_API_KEY enables the model. Missing key or any HTTP failure →
+callers use their deterministic template. No other LLM provider is wired.
+
+Text, JSON mode and tool-calling are live on deepseek-v4-flash. Vision is
+not — the model is text-only, so GRN photo extraction stays off by default
+(see vision_enabled()).
 """
 
 from __future__ import annotations
@@ -22,13 +22,49 @@ from typing import Any, Optional
 from urllib import error, request
 
 
-XAI_BASE = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1").rstrip("/")
-XAI_MODEL = os.getenv("XAI_MODEL", "grok-4-1-fast-reasoning")
-XAI_REASONING_EFFORT = os.getenv("XAI_REASONING_EFFORT", "").strip()
+DEEPSEEK_BASE = "https://api.deepseek.com"
+DEEPSEEK_MODEL = "deepseek-v4-flash"
+
+
+def _deepseek_key() -> str:
+    return os.getenv("DEEPSEEK_API_KEY", "").strip()
+
+
+def provider_info() -> Optional[dict[str, str]]:
+    if not _deepseek_key():
+        return None
+    return {
+        "name": "deepseek",
+        "source": "deepseek",
+        "key": _deepseek_key(),
+        "base": os.getenv("DEEPSEEK_BASE_URL", DEEPSEEK_BASE).rstrip("/"),
+        "model": os.getenv("DEEPSEEK_MODEL", DEEPSEEK_MODEL).strip() or DEEPSEEK_MODEL,
+    }
 
 
 def is_enabled() -> bool:
-    return bool(os.getenv("XAI_API_KEY", "").strip())
+    return provider_info() is not None
+
+
+def vision_enabled() -> bool:
+    """Off by default: deepseek-v4-flash is text-only.
+
+    An image_url content part is rejected outright — HTTP 400 "unknown variant
+    `image_url`, expected `text`" — so leaving this on would burn a round-trip
+    per GRN photo and park the receipt in 'failed'/triage. Off means GRN capture
+    takes the 'skipped' path instead, which is a first-class working path (the
+    matcher still runs against manually-keyed lines — see store/extraction.py).
+
+    Set DEEPSEEK_VISION=1 only when DEEPSEEK_BASE_URL/DEEPSEEK_MODEL point at a
+    vision-capable OpenAI-compatible endpoint.
+    """
+    if not is_enabled():
+        return False
+    return os.getenv("DEEPSEEK_VISION", "").strip().lower() in ("1", "true", "yes")
+
+
+def llm_source() -> str:
+    return "deepseek" if is_enabled() else "deterministic"
 
 
 # --- Call stats (powers /api/ai/status) --------------------------------------
@@ -54,52 +90,27 @@ def get_stats() -> dict:
     return dict(_STATS)
 
 
-def grok_chat(
-    system: str,
-    user: str,
+def chat_completions(
+    body: dict[str, Any],
     *,
-    json_mode: bool = False,
-    max_tokens: int = 800,
-    temperature: float = 0.3,
     timeout: int = 30,
-) -> Optional[str]:
-    """Single-turn Grok call. Returns text content or None on any failure.
-
-    Set json_mode=True for features that need structured output (the wrapper
-    instructs the model to return valid JSON). Callers still need to json.loads
-    the result themselves and handle parse failures.
-    """
-
-    api_key = os.getenv("XAI_API_KEY", "").strip()
-    if not api_key:
+    info: Optional[dict[str, str]] = None,
+) -> Optional[dict]:
+    """POST /chat/completions on DeepSeek. Returns parsed JSON or None."""
+    info = info or provider_info()
+    if not info:
         return None
-
-    if json_mode:
-        system = (
-            system
-            + "\n\nReturn ONLY a single valid JSON object. No prose, no markdown fences."
-        )
-
-    body: dict[str, Any] = {
-        "model": XAI_MODEL,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
-    if json_mode:
-        body["response_format"] = {"type": "json_object"}
-    if XAI_REASONING_EFFORT:
-        body["reasoning_effort"] = XAI_REASONING_EFFORT
+    payload = dict(body)
+    payload.setdefault("model", info["model"])
+    if "thinking" not in payload:
+        payload["thinking"] = {"type": "disabled"}
 
     req = request.Request(
-        url=f"{XAI_BASE}/chat/completions",
-        data=json.dumps(body).encode("utf-8"),
+        url=f"{info['base']}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {info['key']}",
         },
         method="POST",
     )
@@ -109,31 +120,61 @@ def grok_chat(
         with request.urlopen(req, timeout=timeout) as resp:
             parsed = json.loads(resp.read().decode("utf-8"))
         record_call((_time.perf_counter() - t0) * 1000, ok=True)
-        return (
-            parsed.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-            .strip()
-            or None
-        )
+        return parsed
     except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError, KeyError, ValueError):
         record_call((_time.perf_counter() - t0) * 1000, ok=False)
         return None
 
 
+def grok_chat(
+    system: str,
+    user: str,
+    *,
+    json_mode: bool = False,
+    max_tokens: int = 800,
+    temperature: float = 0.3,
+    timeout: int = 30,
+) -> Optional[str]:
+    """Single-turn DeepSeek chat. Name is historical. None on any failure."""
+    if not is_enabled():
+        return None
+
+    if json_mode:
+        system = (
+            system
+            + "\n\nReturn ONLY a single valid JSON object. No prose, no markdown fences."
+        )
+
+    body: dict[str, Any] = {
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
+
+    parsed = chat_completions(body, timeout=timeout)
+    if not parsed:
+        return None
+    return (
+        parsed.get("choices", [{}])[0]
+        .get("message", {})
+        .get("content", "")
+        .strip()
+        or None
+    )
+
+
 def grok_json(system: str, user: str, *, max_tokens: int = 800, timeout: int = 30) -> Optional[dict]:
-    """Convenience: call grok_chat in JSON mode and parse the result.
-
-    Returns None if the call failed OR if the result wasn't valid JSON.
-    """
-
     raw = grok_chat(system, user, json_mode=True, max_tokens=max_tokens, timeout=timeout)
     if not raw:
         return None
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        # Try to salvage if model wrapped in fences despite the instruction
         cleaned = raw.strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.strip("`")
@@ -154,16 +195,8 @@ def grok_vision_json(
     max_tokens: int = 1600,
     timeout: int = 60,
 ) -> Optional[dict]:
-    """Single-turn Grok vision call over one local image. Returns parsed JSON or None.
-
-    Mirrors grok_chat/grok_json's urllib style and fenced-JSON salvage, but
-    builds a multimodal user message (text + base64 image) instead of a plain
-    string. Returns None on ANY failure: disabled, unreadable file, HTTP error,
-    or invalid JSON.
-    """
-
-    api_key = os.getenv("XAI_API_KEY", "").strip()
-    if not api_key:
+    """Vision JSON. None unless vision_enabled() — see the note there."""
+    if not vision_enabled():
         return None
 
     import base64
@@ -174,59 +207,39 @@ def grok_vision_json(
     except OSError:
         return None
 
-    model = os.getenv("XAI_VISION_MODEL", "").strip() or XAI_MODEL
     system = (
         system
         + "\n\nReturn ONLY a single valid JSON object. No prose, no markdown fences."
     )
-
-    body: dict[str, Any] = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": user},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
-                    },
-                ],
-            },
-        ],
-        "temperature": 0.1,
-        "max_tokens": max_tokens,
-        "response_format": {"type": "json_object"},
-    }
-    if XAI_REASONING_EFFORT:
-        body["reasoning_effort"] = XAI_REASONING_EFFORT
-
-    req = request.Request(
-        url=f"{XAI_BASE}/chat/completions",
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
+    parsed = chat_completions(
+        {
+            "messages": [
+                {"role": "system", "content": system},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                        },
+                    ],
+                },
+            ],
+            "temperature": 0.1,
+            "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
         },
-        method="POST",
+        timeout=timeout,
     )
-    import time as _time
-    t0 = _time.perf_counter()
-    try:
-        with request.urlopen(req, timeout=timeout) as resp:
-            parsed = json.loads(resp.read().decode("utf-8"))
-        record_call((_time.perf_counter() - t0) * 1000, ok=True)
-        raw = (
-            parsed.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-            .strip()
-        )
-    except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError, KeyError, ValueError):
-        record_call((_time.perf_counter() - t0) * 1000, ok=False)
+    if not parsed:
         return None
-
+    raw = (
+        parsed.get("choices", [{}])[0]
+        .get("message", {})
+        .get("content", "")
+        .strip()
+    )
     if not raw:
         return None
     try:
@@ -240,5 +253,5 @@ def grok_vision_json(
             try:
                 return json.loads(cleaned)
             except json.JSONDecodeError:
-                pass
+                return None
         return None

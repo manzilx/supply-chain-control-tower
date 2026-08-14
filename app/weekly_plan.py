@@ -171,7 +171,7 @@ from ._cache import ttl_cache
 
 
 # 60s cache matters doubly here: the plan synthesis fans out across every
-# module AND (with XAI_API_KEY set) makes an LLM call — multi-second latency
+# module AND (with an LLM key set) makes an LLM call — multi-second latency
 # and real cost on every /weekly-plan load without this.
 @ttl_cache(ttl_seconds=60.0)
 def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
@@ -402,12 +402,17 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
         items=items,
         assumptions=[
             "Plan is rebuilt on every fetch from current scenario + sourcing + logistics state.",
-            "Priorities use deterministic rules; synthesized_narrative comes from Grok when XAI_API_KEY is set.",
+            "Priorities use deterministic rules; synthesized_narrative comes from DeepSeek when DEEPSEEK_API_KEY is set.",
             "Confidence is a heuristic from signal strength, not a statistical estimate.",
         ],
     )
-    # Add LLM synthesis on top of the rule-based plan (None if Grok unavailable).
+    from .llm import is_enabled, llm_source
+
     plan.synthesized_narrative = _llm_weekly_narrative(plan)
+    if plan.synthesized_narrative and is_enabled():
+        src = llm_source()
+        if src == "deepseek":
+            plan.narrative_source = src  # type: ignore[assignment]
     return plan
 
 

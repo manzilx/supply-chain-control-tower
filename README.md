@@ -49,13 +49,13 @@ Logs land in `.logs/` and PIDs in `.pids/` (both gitignored).
 
 ## AI
 
-Every AI feature routes through **Grok 4.1 fast reasoning** (xAI) when `XAI_API_KEY` is set, with a deterministic fallback if the key is missing or the call fails. Each response carries a `source: "grok" | "deterministic"` field so you can see which path produced the output.
+Every AI feature routes through **DeepSeek** (`deepseek-v4-flash`) when `DEEPSEEK_API_KEY` is set. If the key is missing or a call fails, the app uses deterministic templates. Each response carries `source: "deepseek" | "deterministic"`.
 
 **Activate:**
 
 ```bash
 cp .env.example .env
-# edit .env, set XAI_API_KEY=xai-...
+# edit .env, set DEEPSEEK_API_KEY=sk-...
 make stop && make demo    # scripts/demo.sh auto-sources .env before starting
 ```
 
@@ -63,9 +63,9 @@ make stop && make demo    # scripts/demo.sh auto-sources .env before starting
 
 **What turns on with the key:**
 
-| Surface | What Grok generates |
+| Surface | What the LLM generates |
 |---|---|
-| `/agent` chat | Tool-calling responses (`source: "grok"`) |
+| `/agent` chat | Tool-calling responses (`source: "deepseek"`) |
 | `/overview` | Executive prose brief |
 | `/risks` | Per-risk mitigations (Mitigations button), per-risk Explain brief |
 | `/simulate` | 2-paragraph executive narrative on every simulation result |
@@ -82,10 +82,10 @@ Configurable env vars (all live in `.env`):
 
 | Var | Default | Purpose |
 |---|---|---|
-| `XAI_API_KEY` | _(required to enable Grok)_ | xAI API key |
-| `XAI_MODEL` | `grok-4-1-fast-reasoning` | Model ID |
-| `XAI_BASE_URL` | `https://api.x.ai/v1` | API base |
-| `XAI_REASONING_EFFORT` | _(unset)_ | `low` or `high` to override reasoning depth |
+| `DEEPSEEK_API_KEY` | _(required to enable AI)_ | DeepSeek API key |
+| `DEEPSEEK_MODEL` | `deepseek-v4-flash` | Model ID (`deepseek-v4-pro` for heavier jobs) |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | API base |
+
 
 ## Deployment
 
@@ -99,7 +99,7 @@ Universal. Works on any cloud VM (AWS EC2, Hetzner, DigitalOcean, your laptop). 
 # One-time
 cp .env.production.example .env.production
 # edit .env.production — set HOSTNAME (or `localhost` for testing),
-# JWT_SECRET (mandatory — `openssl rand -hex 32`), XAI_API_KEY, ALLOWED_ORIGINS, etc.
+# JWT_SECRET (mandatory — `openssl rand -hex 32`), DEEPSEEK_API_KEY, ALLOWED_ORIGINS, etc.
 
 docker compose --env-file .env.production up -d --build
 ```
@@ -123,7 +123,7 @@ One VM hosts backend + frontend + nginx via `supervisord`. Free-tier eligible: 2
 fly auth login
 fly launch --no-deploy --copy-config --name <your-app>
 fly volumes create state -r <region> -s 1
-fly secrets set XAI_API_KEY=xai-... ALLOWED_ORIGIN_REGEX='https://your-app\.fly\.dev'
+fly secrets set DEEPSEEK_API_KEY=sk-... ALLOWED_ORIGIN_REGEX='https://your-app\.fly\.dev'
 
 fly deploy
 ```
@@ -145,7 +145,7 @@ Already documented above. Don't expose this to the internet — no TLS, no CORS 
 | **TLS** | Caddy auto-issues Let's Encrypt for non-localhost `HOSTNAME` (path A). Fly terminates TLS at the edge (path B). |
 | **Health probes** | `/healthz` (liveness) and `/readyz` (readiness, includes snapshot status). Both registered for Docker, K8s, Fly. |
 | **Process model** | Backend: uvicorn with `UVICORN_WORKERS=1` (state is process-local in-memory; do not scale workers without moving state to a shared store first). Frontend: Next.js standalone output (`next start` via `server.js`). Both run as non-root user `app` (uid 1000). |
-| **Secrets** | `JWT_SECRET` (mandatory in prod — backend refuses the dev default), `XAI_API_KEY`, SAP CPI vars. `.env.production` (gitignored) for Compose; `fly secrets set` for Fly. Never bake into images. |
+| **Secrets** | `JWT_SECRET` (mandatory in prod — backend refuses the dev default), `DEEPSEEK_API_KEY`, SAP CPI vars. `.env.production` (gitignored) for Compose; `fly secrets set` for Fly. Never bake into images. |
 | **Logs** | Both services write to stdout/stderr (12-factor). Caddy + nginx + supervisord all log to stdout. |
 | **Restart policy** | `restart: unless-stopped` (Compose), `auto_restart` (supervisord), Fly's machine restart on health failure. |
 
@@ -161,9 +161,9 @@ Already documented above. Don't expose this to the internet — no TLS, no CORS 
 ├── app/                           FastAPI backend
 │   ├── main.py                    routes
 │   ├── schemas.py                 Pydantic models
-│   ├── agent.py                   AI command center (Grok + deterministic)
+│   ├── agent.py                   AI command center (DeepSeek + deterministic)
 │   ├── agent_tools.py             15 tool definitions
-│   ├── ai_assist.py               executive brief (Grok)
+│   ├── ai_assist.py               executive brief (DeepSeek)
 │   ├── analytics.py               risk engine
 │   ├── planning.py                projects, BOM, procurement plan
 │   ├── sourcing.py                PR → RFQ → Quote → Award → PO
@@ -187,7 +187,7 @@ Already documented above. Don't expose this to the internet — no TLS, no CORS 
 
 - All persistence is **in-memory** — every cold boot reseeds from `fixtures/`. Project + BOM persist via the planning store's import-time `_seed()`; sourcing workflow (PRs/RFQs/awards/POs) is HTTP-seeded post-startup and resets when the backend restarts.
 - Backend port `8010`, frontend port `3001` (memory note: 3000 is often taken by the user's other project).
-- LLM calls go to xAI's OpenAI-compatible chat-completions endpoint; tool-calling shape mirrors OpenAI (`tools` with `type: function`, results returned as `role: tool`).
+- LLM calls go to DeepSeek's OpenAI-compatible chat-completions endpoint; tool-calling shape mirrors OpenAI (`tools` with `type: function`, results returned as `role: tool`).
 
 ## Milestones
 

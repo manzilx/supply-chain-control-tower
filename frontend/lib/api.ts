@@ -60,6 +60,8 @@ import type {
   RFQ,
   Shipment,
   ShipmentEvent,
+  ParseSimulationReply,
+  SimulationBrief,
   SimulationRequest,
   SimulationResult,
   SourcingPO,
@@ -405,6 +407,12 @@ export function fetchProjectCommercials(projectId: string): Promise<CommercialLi
 // M5: Simulations
 export function runSimulation(req: SimulationRequest): Promise<SimulationResult> {
   return postJson("/api/risk/simulate", req);
+}
+export function fetchSimulationBrief(result: SimulationResult): Promise<SimulationBrief> {
+  return postJson("/api/risk/simulate/brief", result);
+}
+export function parseSimulationAsk(ask: string): Promise<ParseSimulationReply> {
+  return postJson("/api/risk/simulate/parse", { ask });
 }
 
 // M6: AI Command Center

@@ -4,7 +4,7 @@ AI-assisted procurement cockpit for engineering / EPC / industrial projects.
 Next.js 14 (App Router, TypeScript) frontend + FastAPI backend, multi-tenant, deployed on Fly.io.
 
 - **Live:** https://scm-towerx.fly.dev/  ·  **Local:** `docker compose --env-file .env.production up -d` → https://localhost/
-- **Stack:** FastAPI · Pydantic · in-memory stores + JSON snapshot persistence · Next.js 14 · Tailwind · framer-motion · Recharts · Grok 4.1 (xAI) with deterministic fallback · SAP CPI (mock) · Caddy / nginx reverse proxy · single uvicorn worker.
+- **Stack:** FastAPI · Pydantic · in-memory stores + JSON snapshot persistence · Next.js 14 · Tailwind · framer-motion · Recharts · DeepSeek with deterministic fallback · SAP CPI (mock) · Caddy / nginx reverse proxy · single uvicorn worker.
 
 ---
 
@@ -95,7 +95,7 @@ Every domain object carries `tenant_id`; cross-tenant reads return 404; cross-te
 - **Path B — Fly.io single container (current live):** `Dockerfile.combined` + supervisord (uvicorn + next + nginx), `state` volume at `/data`, `fly deploy`.
 - **Persistence:** in-memory stores snapshot to JSON every 120s (`projects/sourcing/tbe/logistics/audit/sap_cpi/vendors/approvals.json`) and restore on boot. Survives restarts.
 - **Process model:** `UVICORN_WORKERS=1` (mandatory — state is process-local; comments in 5 config files guard against scaling).
-- **Secrets:** `JWT_SECRET` (mandatory in prod), `XAI_API_KEY` (enables Grok; deterministic fallback otherwise), SAP CPI vars.
+- **Secrets:** `JWT_SECRET` (mandatory in prod), `DEEPSEEK_API_KEY` (enables DeepSeek; otherwise deterministic templates), SAP CPI vars.
 
 ---
 
@@ -107,6 +107,40 @@ Every domain object carries `tenant_id`; cross-tenant reads return 404; cross-te
 - **Agent tools** are tenant-scoped via the chat request user (`get_tool_user()`).
 - Move cache invalidation to commit-end with try/finally already done (cycle 1); consider a shared store (Redis/SQLite) before scaling beyond one worker.
 - M8 candidates: ERP/P6 connectors, contract parsing, WhatsApp outbound, real auth (SSO), approval chains, per-row ACLs, encryption at rest.
+
+---
+
+## 7. Hero feature — What-if Simulator (`/simulate`)
+
+The page a buyer or procurement head should open first for “what if this slip / this vendor / this need-by moves.” Today it is a three-scenario form that already returns a uniform `SimulationResult` (headline, severity, cost/schedule deltas, affected items, milestone impacts, mitigations). It is **not** yet the first-open hero: no suggested run, no need-by move, no action from the result.
+
+### Current breakage
+
+| # | Bug | Why it matters |
+|---|---|---|
+| **S0** | `run_simulation(..., tenant_id)` is discarded. Helpers call `build_demo_request()` (always Arcforge), `_list_sourcing_pos()` / `list_projects()` / `get_bom()` / `get_vendor_scorecard()` unscoped. | Helios / Northwind default run → “No open orders” / “scorecard not found”. Cross-tenant PO/vendor bleed if sourcing POs exist. **Must-fix.** |
+| S1 | Vendor picker is intel sorted by score, not by open-order exposure. Highest-score vendor often has no POs (e.g. Helios “Coastline Marine Coatings”). | Default `vendor_slip_2w` is an empty-impact path even after S0. |
+| S2 | Page starts blank — user must pick scenario + target + Run. No suggested cards from expedite / logistics / single-source. | Not a first-open page. |
+| S3 | No “need-by / milestone moves” scenario. Only vendor slip, customs hold, alt vendor. | The third question a head actually asks is missing. |
+| S4 | Result is read-only. No expedite / follow-up / open-PO from the impact list. | Insight without an action loop. |
+
+### Hero UX
+
+Land on `/simulate` and immediately see **the most material live what-if** for this tenant (top slip-risk vendor, or longest-lead shipment), already run. Three question cards above the form: *this vendor slips*, *this shipment holds*, *this need-by moves*. Result is a decision brief: cost + days + named milestones + one primary action (expedite, draft follow-up, or open the PO). Alternate-vendor stays a compare, not the default.
+
+### Implementation sequence (PR-sized)
+
+| Slice | Work | Status |
+|---|---|---|
+| **S0** | Plumb `tenant_id` through every lookup in `app/simulations.py`. Tests: Arcforge default vendor-slip returns impact; Helios `NorthCable Subsea` returns `PO-HE-*`; cross-tenant target is empty-impact, not leak. | ✅ |
+| **S1** | Default target = vendor/PO with open exposure (expedite queue / scenario POs), not highest scorecard. Empty-impact is a real explanation + “try this vendor” link. | ✅ |
+| **S2** | Three suggested cards from live queue; click runs immediately. Auto-run the top card on first visit. | ✅ |
+| **S3** | New scenario `need_by_move` (BOM / PR / milestone date ±N days) → same `SimulationResult`. | ✅ |
+| **S4** | Result → action: expedite request, draft follow-up, deep-link PO / vendor. | ✅ |
+| **A0** | Simulate returns numbers immediately (`narrative` off the hot path). | ✅ |
+| **A1** | `POST /api/risk/simulate/brief` — structured decision brief (why + primary action). | ✅ |
+| **A2** | Draft follow-up from a result carries the simulation headline / cost / days. | ✅ |
+| **A3** | Ask-a-what-if box → `POST /api/risk/simulate/parse` → same engine. | ✅ |
 
 ---
 

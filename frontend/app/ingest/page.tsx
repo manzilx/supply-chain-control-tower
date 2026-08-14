@@ -119,7 +119,7 @@ export default function IngestPage() {
             <p className="text-sm text-muted m-0 mt-1">
               Multi-sheet Excel supported — sheets are classified as Projects / BOM / Suppliers
               automatically. Headers like “Part No”, “Qty”, “Vendor”, “OTD %” are fuzzy-mapped to
-              the schema; leftovers go through one AI mapping pass when Grok is enabled.
+              the schema; leftovers go through one AI mapping pass when DeepSeek is enabled.
             </p>
           </div>
           <button

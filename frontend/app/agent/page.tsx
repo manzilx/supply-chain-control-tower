@@ -19,9 +19,7 @@ const SUGGESTIONS = [
 ];
 
 const SOURCE_LABEL: Record<ChatReply["source"], string> = {
-  grok: "Grok",
-  claude: "Claude",
-  openai: "OpenAI",
+  deepseek: "DeepSeek",
   deterministic: "Rule-based",
 };
 

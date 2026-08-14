@@ -3,11 +3,11 @@
 Two modes:
 1. Deterministic router (default, always works, no API key) — keyword match
    the user message to tools, run them, format a response.
-2. Grok tool-calling (opt-in via XAI_API_KEY) — Grok plans tool calls via the
-   OpenAI-compatible chat-completions API, we execute, loop until it returns
-   a final message.
+2. LLM tool-calling (opt-in via DEEPSEEK_API_KEY) — DeepSeek plans tool
+   calls via the OpenAI-compatible chat-completions API, we execute, loop
+   until it returns a final message.
 
-xAI's API shape mirrors OpenAI's tool-calling, NOT Anthropic Messages — tools
+The API shape mirrors OpenAI's tool-calling, NOT Anthropic Messages — tools
 are wrapped in {"type": "function", "function": {...}}, tool calls return
 under message.tool_calls, and tool results go back as {"role": "tool", ...}.
 """
@@ -32,9 +32,7 @@ from .schemas import (
 
 
 MAX_TURNS = 6  # tool-use loops before we force a final reply
-GROK_MODEL = os.getenv("XAI_MODEL", "grok-4-1-fast-reasoning")
-GROK_BASE = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1").rstrip("/")
-GROK_REASONING_EFFORT = os.getenv("XAI_REASONING_EFFORT", "").strip()  # "low" | "high" | ""
+
 
 
 # --- Deterministic router ---------------------------------------------------
@@ -290,7 +288,7 @@ _SYSTEM_PROMPT = (
 
 
 def _grok_tools_schema() -> list:
-    """OpenAI-style function tool schema (xAI follows the same shape)."""
+    """OpenAI-style function tool schema (DeepSeek follows the same shape)."""
 
     return [
         {
@@ -306,30 +304,20 @@ def _grok_tools_schema() -> list:
 
 
 def _grok_call(messages: list, tools: list) -> dict:
-    api_key = os.getenv("XAI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("XAI_API_KEY missing")
+    from .llm import chat_completions, is_enabled
+
+    if not is_enabled():
+        raise RuntimeError("LLM API key missing")
     body: dict = {
-        "model": GROK_MODEL,
         "messages": messages,
         "tools": tools,
         "tool_choice": "auto",
         "temperature": 0.2,
     }
-    if GROK_REASONING_EFFORT:
-        # Reasoning models accept "low" or "high"; off when empty.
-        body["reasoning_effort"] = GROK_REASONING_EFFORT
-    req = request.Request(
-        url=f"{GROK_BASE}/chat/completions",
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
-        method="POST",
-    )
-    with request.urlopen(req, timeout=60) as response:
-        return json.loads(response.read().decode("utf-8"))
+    parsed = chat_completions(body, timeout=60)
+    if not parsed:
+        raise RuntimeError("LLM chat completion failed")
+    return parsed
 
 
 def dispatch_grok(
@@ -409,12 +397,15 @@ def dispatch_grok(
         if finish_reason != "tool_calls":
             break
 
+    from .llm import llm_source
+
     persona = _detect_persona(message)
+    src = llm_source()
     return ChatReply(
         reply=final_text.strip() or "(no text response)",
         tool_calls=tool_records,
         persona=persona,
-        source="grok",
+        source="deepseek" if src == "deepseek" else "deterministic",
         generated_at=datetime.now(timezone.utc),
     )
 
@@ -428,7 +419,9 @@ def dispatch(
     page: str | None = None,
     on_event=None,
 ) -> ChatReply:
-    if os.getenv("XAI_API_KEY", "").strip():
+    from .llm import is_enabled
+
+    if is_enabled():
         try:
             return dispatch_grok(message, history, page=page, on_event=on_event)
         except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError, KeyError, RuntimeError):

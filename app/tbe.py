@@ -217,7 +217,7 @@ def set_evaluation(
     pr_no = rfq_obj.pr_no if rfq_obj else None
     pr_obj = _prs.get(pr_no) if pr_no else None
     emit(
-        action="evaluated" if source != "grok" else "ai_generated",
+        action="evaluated" if source != "deepseek" else "ai_generated",
         entity_kind="technical_evaluation",
         entity_id=f"{rfq_no}:{quote_id}",
         subject=f"TBE · {vendor}",
@@ -227,8 +227,8 @@ def set_evaluation(
             + (f" · {dq_reason}" if disqualified else "")
             + f" · source: {source}"
         ),
-        actor="grok" if source == "grok" else evaluated_by,
-        source="ai" if source == "grok" else "api",
+        actor="deepseek" if source == "deepseek" else evaluated_by,
+        source="ai" if source == "deepseek" else "api",
         tenant_id=rfq_obj.tenant_id if rfq_obj else "",
         project_id=rfq_obj.project_id if rfq_obj else None,
         bom_item_id=pr_obj.bom_item_id if pr_obj else None,
@@ -396,7 +396,7 @@ def auto_evaluate(rfq_no: str) -> List[TechnicalEvaluation]:
     (source='deterministic') that use vendor scorecard + quote notes as proxies.
     """
 
-    from .llm import grok_json, is_enabled
+    from .llm import grok_json, is_enabled, llm_source
     from .sourcing import get_quotes, get_rfq
     from .vendor_intel import get_vendor_scorecard
 
@@ -479,8 +479,8 @@ def auto_evaluate(rfq_no: str) -> List[TechnicalEvaluation]:
                             quote_id=q.quote_id,
                             vendor=q.vendor,
                             scores=scores,
-                            notes="Grok-generated TBE",
-                            source="grok",
+                            notes="AI-generated TBE",
+                            source=llm_source(),
                         )
                     )
                     continue

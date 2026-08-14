@@ -282,7 +282,7 @@ def _summarize_prs(ps: List[Any]) -> str:
 
 def _tool_simulate(args: dict) -> Any:
     scenario_value = args.get("scenario")
-    if scenario_value not in {"vendor_slip_2w", "customs_hold", "alt_vendor"}:
+    if scenario_value not in {"vendor_slip_2w", "customs_hold", "alt_vendor", "need_by_move"}:
         return None
     req = SimulationRequest(
         scenario=scenario_value,  # type: ignore[arg-type]
@@ -516,11 +516,11 @@ TOOLS: Dict[str, Tool] = {
     ),
     "run_simulation": Tool(
         name="run_simulation",
-        description="Run a what-if simulation: vendor_slip_2w | customs_hold | alt_vendor.",
+        description="Run a what-if simulation: vendor_slip_2w | customs_hold | alt_vendor | need_by_move.",
         input_schema={
             "type": "object",
             "properties": {
-                "scenario": {"type": "string", "enum": ["vendor_slip_2w", "customs_hold", "alt_vendor"]},
+                "scenario": {"type": "string", "enum": ["vendor_slip_2w", "customs_hold", "alt_vendor", "need_by_move"]},
                 "target": {"type": "string"},
                 "alternate_vendor": {"type": "string"},
                 "custom_slip_days": {"type": "integer"},

@@ -53,9 +53,7 @@ function suggestionsFor(path: string): string[] {
 }
 
 const SOURCE_LABEL: Record<string, string> = {
-  grok: "Grok",
-  claude: "Claude",
-  openai: "OpenAI",
+  deepseek: "DeepSeek",
   deterministic: "Rule-based",
 };
 
@@ -194,7 +192,7 @@ export function Copilot() {
                         title={
                           aiStatus.enabled
                             ? `${aiStatus.model} · ${aiStatus.stats.calls} calls · last ${aiStatus.stats.last_latency_ms ?? "—"}ms`
-                            : "Deterministic fallback (no XAI_API_KEY)"
+                            : "Deterministic fallback (no DEEPSEEK_API_KEY)"
                         }
                       />
                     ) : null}

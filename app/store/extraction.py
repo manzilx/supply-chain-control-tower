@@ -1,10 +1,14 @@
 """Async vision-LLM challan extraction worker.
 
-Runs after a GRN lands via field sync. Grok vision -> deterministic
+Runs after a GRN lands via field sync. LLM vision -> deterministic
 normalize -> matcher (no LLM, see matching.py) -> banded header status.
 LLM-off is a first-class working path, not an error: extraction_status
 becomes 'skipped' and the matcher still runs synchronously against any
 manually-keyed lines.
+
+That skipped path is the *default* today: the wired model (deepseek-v4-flash)
+is text-only, so llm.vision_enabled() is off unless DEEPSEEK_VISION=1 points
+at a vision-capable endpoint.
 """
 
 from __future__ import annotations
@@ -75,7 +79,11 @@ def _normalize_qty(raw) -> Optional[float]:
 
 
 def _extraction_model() -> str:
-    return os.getenv("XAI_VISION_MODEL", "").strip() or os.getenv("XAI_MODEL", "grok-4-1-fast-reasoning")
+    from ..llm import provider_info
+    info = provider_info()
+    if info:
+        return info["model"]
+    return os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
 
 async def run_extraction(grn_id: str) -> None:
@@ -85,7 +93,7 @@ async def run_extraction(grn_id: str) -> None:
         if header is None or header["status"] not in ACTIVE_STATUSES:
             return
 
-        if not llm.is_enabled():
+        if not llm.vision_enabled():
             cur = conn.execute(
                 "UPDATE grn SET extraction_status = 'skipped' "
                 "WHERE grn_id = ? AND status IN ('captured', 'extracting')",

@@ -1,10 +1,11 @@
 """Risk simulations.
 
-Three what-if simulators that reuse scorecards, BOMs, and sourcing state:
+What-if simulators that reuse scorecards, BOMs, and sourcing state:
 
 - vendor_slip_2w  : what if `<vendor>` slips every open order by ~14 days?
 - customs_hold    : what if `<po_no>` gets held in customs for ~21 days?
 - alt_vendor      : what if we replaced `<vendor>` with `<alternate_vendor>`?
+- need_by_move    : what if a milestone / PR / BOM need-by moves ±N days?
 
 Returns a uniform SimulationResult so the UI can render any scenario with the
 same component.
@@ -12,14 +13,18 @@ same component.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Tuple
 
 from .planning import get_bom, list_projects
 from .sample_data import build_demo_request
 from .schemas import (
     AffectedItem,
     MilestoneImpact,
+    ParseSimulationReply,
+    SimulationBrief,
+    SimulationPrimaryAction,
     SimulationRequest,
     SimulationResult,
     SourcingPO,
@@ -41,12 +46,16 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _demo(tenant_id: Optional[str] = None):
+    return build_demo_request(tenant_id or "arcforge")
+
+
 def _suppliers(tenant_id: Optional[str] = None) -> Dict[str, SupplierRecord]:
-    return {s.name: s for s in build_demo_request(tenant_id or "arcforge").suppliers}
+    return {s.name: s for s in _demo(tenant_id).suppliers}
 
 
-def _project_name(pid: str) -> str:
-    for p in list_projects():
+def _project_name(pid: str, tenant_id: Optional[str] = None) -> str:
+    for p in list_projects(tenant_id=tenant_id):
         if p.project_id == pid:
             return p.name
     return pid
@@ -67,12 +76,13 @@ def _milestone_slip_for_bom(
     bom_item_id: str,
     project_id: str,
     slip_days: int,
+    tenant_id: Optional[str] = None,
 ) -> Optional[MilestoneImpact]:
-    items = get_bom(project_id)
+    items = get_bom(project_id, tenant_id=tenant_id)
     item = next((i for i in items if i.bom_item_id == bom_item_id), None)
     if not item or not item.milestone_code:
         return None
-    for p in list_projects():
+    for p in list_projects(tenant_id=tenant_id):
         if p.project_id == project_id:
             for m in p.milestones:
                 if m.code == item.milestone_code:
@@ -91,9 +101,11 @@ def _milestone_slip_for_bom(
 # --- Vendor slip simulation --------------------------------------------------
 
 
-def _simulate_vendor_slip(vendor: str, slip_days: int) -> SimulationResult:
-    scenario = build_demo_request()
-    sourcing_pos = _list_sourcing_pos()
+def _simulate_vendor_slip(
+    vendor: str, slip_days: int, tenant_id: Optional[str] = None
+) -> SimulationResult:
+    scenario = _demo(tenant_id)
+    sourcing_pos = _list_sourcing_pos(tenant_id)
     affected: List[AffectedItem] = []
     milestone_impacts: List[MilestoneImpact] = []
     total_value = 0.0
@@ -142,9 +154,11 @@ def _simulate_vendor_slip(vendor: str, slip_days: int) -> SimulationResult:
         total_value += spo.value_usd
         # milestone lookup via PR→BOM link
         from .sourcing import get_pr  # local import to avoid cycle
-        pr = get_pr(spo.pr_no)
+        pr = get_pr(spo.pr_no, tenant_id=tenant_id)
         if pr and pr.bom_item_id:
-            impact = _milestone_slip_for_bom(pr.bom_item_id, spo.project_id, slip_days)
+            impact = _milestone_slip_for_bom(
+                pr.bom_item_id, spo.project_id, slip_days, tenant_id
+            )
             if impact:
                 milestone_impacts.append(impact)
 
@@ -188,8 +202,10 @@ def _simulate_vendor_slip(vendor: str, slip_days: int) -> SimulationResult:
 # --- Customs hold simulation -------------------------------------------------
 
 
-def _simulate_customs_hold(po_ref: str) -> SimulationResult:
-    scenario = build_demo_request()
+def _simulate_customs_hold(
+    po_ref: str, tenant_id: Optional[str] = None
+) -> SimulationResult:
+    scenario = _demo(tenant_id)
     affected: List[AffectedItem] = []
     milestone_impacts: List[MilestoneImpact] = []
     value = 0.0
@@ -198,7 +214,7 @@ def _simulate_customs_hold(po_ref: str) -> SimulationResult:
 
     scenario_po = next((p for p in scenario.purchase_orders if p.po_number == po_ref), None)
     sourcing_po: Optional[SourcingPO] = next(
-        (p for p in _list_sourcing_pos() if p.po_no == po_ref), None
+        (p for p in _list_sourcing_pos(tenant_id) if p.po_no == po_ref), None
     )
 
     if scenario_po:
@@ -241,9 +257,11 @@ def _simulate_customs_hold(po_ref: str) -> SimulationResult:
             )
         )
         from .sourcing import get_pr
-        pr = get_pr(sourcing_po.pr_no)
+        pr = get_pr(sourcing_po.pr_no, tenant_id=tenant_id)
         if pr and pr.bom_item_id:
-            impact = _milestone_slip_for_bom(pr.bom_item_id, sourcing_po.project_id, CUSTOMS_HOLD_DAYS)
+            impact = _milestone_slip_for_bom(
+                pr.bom_item_id, sourcing_po.project_id, CUSTOMS_HOLD_DAYS, tenant_id
+            )
             if impact:
                 milestone_impacts.append(impact)
 
@@ -296,10 +314,12 @@ def _simulate_customs_hold(po_ref: str) -> SimulationResult:
 # --- Alternate vendor simulation --------------------------------------------
 
 
-def _simulate_alt_vendor(current: str, alternate: str) -> SimulationResult:
-    sc_current = get_vendor_scorecard(current)
-    sc_alt = get_vendor_scorecard(alternate)
-    suppliers = _suppliers()
+def _simulate_alt_vendor(
+    current: str, alternate: str, tenant_id: Optional[str] = None
+) -> SimulationResult:
+    sc_current = get_vendor_scorecard(current, tenant_id=tenant_id)
+    sc_alt = get_vendor_scorecard(alternate, tenant_id=tenant_id)
+    suppliers = _suppliers(tenant_id)
     current_supplier = suppliers.get(current)
     alt_supplier = suppliers.get(alternate)
 
@@ -337,7 +357,7 @@ def _simulate_alt_vendor(current: str, alternate: str) -> SimulationResult:
         )
 
     # Orders currently with `current` vendor
-    scenario = build_demo_request()
+    scenario = _demo(tenant_id)
     affected: List[AffectedItem] = []
     total_value = 0.0
     for po in scenario.purchase_orders:
@@ -411,6 +431,232 @@ def _simulate_alt_vendor(current: str, alternate: str) -> SimulationResult:
     )
 
 
+# --- Need-by / milestone move ------------------------------------------------
+
+
+def _resolve_need_by_target(target: str, tenant_id: Optional[str]):
+    from .sourcing import get_pr
+
+    raw = (target or "").strip()
+    if not raw:
+        return None
+    for prefix in ("milestone:", "pr:", "bom:"):
+        if raw.lower().startswith(prefix):
+            raw = raw[len(prefix):]
+            break
+
+    pr = get_pr(raw, tenant_id=tenant_id)
+    if pr:
+        return ("pr", pr, None)
+
+    if ":" in raw:
+        pid, code = raw.split(":", 1)
+        for p in list_projects(tenant_id=tenant_id):
+            if p.project_id != pid:
+                continue
+            milestone = next((m for m in p.milestones if m.code == code), None)
+            if milestone:
+                return ("milestone", p, milestone)
+
+    for p in list_projects(tenant_id=tenant_id):
+        milestone = next((m for m in p.milestones if m.code == raw), None)
+        if milestone:
+            return ("milestone", p, milestone)
+        item = next(
+            (i for i in get_bom(p.project_id, tenant_id=tenant_id) if i.bom_item_id == raw),
+            None,
+        )
+        if item:
+            return ("bom", item, None)
+    return None
+
+
+def _simulate_need_by_move(
+    target: str, slip_days: int, tenant_id: Optional[str] = None
+) -> SimulationResult:
+    from .sourcing import get_pr, list_pos, list_prs
+
+    resolved = _resolve_need_by_target(target, tenant_id)
+    if resolved is None:
+        return SimulationResult(
+            scenario="need_by_move",
+            target=target,
+            generated_at=_now(),
+            headline=f"Need-by target '{target}' not found.",
+            severity="low",
+            cost_delta_usd=0,
+            schedule_delta_days=0,
+            affected_items=[],
+            milestone_impacts=[],
+            mitigations=[],
+            assumptions=[],
+        )
+
+    kind, primary, extra = resolved
+    delta = timedelta(days=slip_days)
+    affected: List[AffectedItem] = []
+    milestone_impacts: List[MilestoneImpact] = []
+    total_value = 0.0
+    label = target
+
+    prs = []
+    if kind == "milestone":
+        project, milestone = primary, extra
+        label = f"{project.project_id}:{milestone.code}"
+        bom_ids = {
+            b.bom_item_id
+            for b in get_bom(project.project_id, tenant_id=tenant_id)
+            if b.milestone_code == milestone.code and b.status != "delivered"
+        }
+        prs = [
+            p for p in list_prs(tenant_id=tenant_id)
+            if p.project_id == project.project_id
+            and (
+                p.milestone_code == milestone.code
+                or (p.bom_item_id and p.bom_item_id in bom_ids)
+            )
+        ]
+        original = milestone.required_on_site_date
+        new_date = original + delta
+        affected.append(
+            AffectedItem(
+                ref_id=f"{project.project_id}:{milestone.code}",
+                code=milestone.code,
+                description=milestone.name,
+                impact=f"Required-on-site moves from {original} to {new_date}.",
+                original_need_date=original,
+                new_expected_date=new_date,
+            )
+        )
+        milestone_impacts.append(
+            MilestoneImpact(
+                project_id=project.project_id,
+                project_name=project.name,
+                milestone_code=milestone.code,
+                milestone_name=milestone.name,
+                original_date=original,
+                new_date=new_date,
+                slip_days=slip_days,
+            )
+        )
+    elif kind == "pr":
+        pr = primary
+        prs = [pr]
+        label = pr.pr_no
+        original = pr.need_by
+        new_expected = original + delta if original else None
+        affected.append(
+            AffectedItem(
+                ref_id=pr.pr_no,
+                code=pr.code,
+                description=pr.description,
+                impact=(
+                    f"PR need-by moves from {original} to {new_expected}."
+                    if original
+                    else f"PR need-by shifts by {slip_days} days."
+                ),
+                original_need_date=original,
+                new_expected_date=new_expected,
+            )
+        )
+        if pr.bom_item_id:
+            impact = _milestone_slip_for_bom(
+                pr.bom_item_id, pr.project_id, slip_days, tenant_id
+            )
+            if impact:
+                milestone_impacts.append(impact)
+    else:
+        item = primary
+        label = item.bom_item_id
+        original = item.planned_need_date
+        new_expected = original + delta if original else None
+        affected.append(
+            AffectedItem(
+                ref_id=item.bom_item_id,
+                code=item.code,
+                description=item.description,
+                impact=(
+                    f"BOM need date moves from {original} to {new_expected}."
+                    if original
+                    else f"BOM need date shifts by {slip_days} days."
+                ),
+                original_need_date=original,
+                new_expected_date=new_expected,
+            )
+        )
+        prs = [
+            p for p in list_prs(tenant_id=tenant_id)
+            if p.bom_item_id == item.bom_item_id
+        ]
+        impact = _milestone_slip_for_bom(
+            item.bom_item_id, item.project_id, slip_days, tenant_id
+        )
+        if impact:
+            milestone_impacts.append(impact)
+
+    pr_nos = {p.pr_no for p in prs}
+    for spo in list_pos(tenant_id=tenant_id):
+        if spo.pr_no not in pr_nos or spo.status == "delivered":
+            continue
+        original = spo.need_by
+        new_expected = original + delta if original else None
+        affected.append(
+            AffectedItem(
+                ref_id=spo.po_no,
+                code=spo.code,
+                description=spo.description,
+                impact=(
+                    f"Linked PO slides from {original} to {new_expected}."
+                    if original
+                    else f"Linked PO slides by {slip_days} days."
+                ),
+                original_need_date=original,
+                new_expected_date=new_expected,
+            )
+        )
+        total_value += spo.value_usd
+        if not milestone_impacts:
+            pr = get_pr(spo.pr_no, tenant_id=tenant_id)
+            if pr and pr.bom_item_id:
+                impact = _milestone_slip_for_bom(
+                    pr.bom_item_id, spo.project_id, slip_days, tenant_id
+                )
+                if impact:
+                    milestone_impacts.append(impact)
+
+    sign = 1 if slip_days >= 0 else -1
+    cost_delta = round(total_value * (LD_RATE + EXPEDITE_RATE) * sign, 2)
+    direction = "slips" if slip_days >= 0 else "pulls in"
+    headline = (
+        f"{label} {direction} by {abs(slip_days)} days; "
+        f"{len(affected)} line(s) move"
+        + (f", ${total_value:,.0f} on linked POs." if total_value else ".")
+    )
+    severity = _severity_from_cost_and_days(abs(cost_delta), abs(slip_days))
+    mitigations = [
+        "Re-sequence downstream awards and freight so the new need-by stays protected.",
+        "Confirm the date change with engineering / construction before locking POs.",
+        "Expedite or defer the linked open orders that now sit on the critical path.",
+    ]
+    assumptions = [
+        f"Need-by / required-on-site shifted by {slip_days:+d} days on {label}.",
+        f"Cost delta modelled as LD ({LD_RATE * 100:.1f}%) plus expediting ({EXPEDITE_RATE * 100:.1f}%) on linked open POs.",
+    ]
+    return SimulationResult(
+        scenario="need_by_move",
+        target=target,
+        generated_at=_now(),
+        headline=headline,
+        severity=severity,  # type: ignore[arg-type]
+        cost_delta_usd=cost_delta,
+        schedule_delta_days=slip_days,
+        affected_items=affected,
+        milestone_impacts=milestone_impacts,
+        mitigations=mitigations,
+        assumptions=assumptions,
+    )
+
+
 # --- Dispatcher --------------------------------------------------------------
 
 
@@ -418,17 +664,20 @@ def run_simulation(
     request: SimulationRequest,
     tenant_id: Optional[str] = None,
 ) -> SimulationResult:
-    # tenant_id is plumbed in for future per-tenant scoping of vendor/PO
-    # lookups inside _simulate_*. Today these still read from the
-    # global sample_data + sourcing stores; the parameter keeps the route
-    # signature ready for that work.
-    _ = tenant_id
     if request.scenario == "vendor_slip_2w":
         result = _simulate_vendor_slip(
-            request.target, request.custom_slip_days or DEFAULT_SLIP_DAYS
+            request.target,
+            request.custom_slip_days or DEFAULT_SLIP_DAYS,
+            tenant_id,
         )
     elif request.scenario == "customs_hold":
-        result = _simulate_customs_hold(request.target)
+        result = _simulate_customs_hold(request.target, tenant_id)
+    elif request.scenario == "need_by_move":
+        result = _simulate_need_by_move(
+            request.target,
+            request.custom_slip_days if request.custom_slip_days is not None else DEFAULT_SLIP_DAYS,
+            tenant_id,
+        )
     elif request.scenario == "alt_vendor":
         if not request.alternate_vendor:
             return SimulationResult(
@@ -444,45 +693,289 @@ def run_simulation(
                 mitigations=[],
                 assumptions=[],
             )
-        result = _simulate_alt_vendor(request.target, request.alternate_vendor)
+        result = _simulate_alt_vendor(
+            request.target, request.alternate_vendor, tenant_id
+        )
     else:
         raise ValueError(f"Unknown scenario: {request.scenario}")
 
-    # Decorate with LLM-generated narrative if Grok is configured.
-    result.narrative = _llm_simulation_narrative(request, result)
     return result
 
 
-def _llm_simulation_narrative(
-    request: SimulationRequest, result: SimulationResult
-) -> Optional[str]:
-    from .llm import grok_chat, is_enabled
+_ALLOWED_ACTIONS: Set[str] = {
+    "followup", "expedite", "open_po", "open_vendor", "open_project",
+}
+_PO_RE = re.compile(r"\b((?:PO|SPO)-[A-Z0-9-]+)\b", re.I)
+_PR_RE = re.compile(r"\b(PR-[A-Z0-9-]+)\b", re.I)
+_MS_RE = re.compile(r"\b(PRJ-[A-Z0-9-]+[:/]M\w+)\b", re.I)
+_DAYS_RE = re.compile(r"(\d+)\s*(?:day|days|d)\b", re.I)
+_WEEKS_RE = re.compile(r"(\d+)\s*(?:week|weeks|w)\b", re.I)
+
+
+def _first_po_ref(result: SimulationResult) -> Optional[str]:
+    for item in result.affected_items:
+        if _PO_RE.match(item.ref_id or ""):
+            return item.ref_id
+    if result.scenario == "customs_hold" and _PO_RE.match(result.target or ""):
+        return result.target
+    return None
+
+
+def _deterministic_brief(result: SimulationResult) -> SimulationBrief:
+    po = _first_po_ref(result)
+    project_id = result.milestone_impacts[0].project_id if result.milestone_impacts else None
+    action: SimulationPrimaryAction = "expedite"
+    ref: Optional[str] = po
+    if result.scenario in {"vendor_slip_2w", "customs_hold"} and po:
+        action = "followup"
+    elif result.scenario == "alt_vendor":
+        action = "open_vendor"
+        ref = result.target
+    elif result.scenario == "need_by_move":
+        action = "open_project"
+        ref = project_id or result.target.split(":")[0]
+    watch = list(result.mitigations[:2])
+    return SimulationBrief(
+        why=result.headline,
+        primary_action=action,
+        action_ref=ref,
+        watch=watch,
+        source="deterministic",
+    )
+
+
+def build_simulation_brief(result: SimulationResult) -> SimulationBrief:
+    """Decision brief. Grok when enabled; always falls back to the headline."""
+    fallback = _deterministic_brief(result)
+    from .llm import grok_json, is_enabled, llm_source
 
     if not is_enabled():
-        return None
+        return fallback
 
     import json as _json
+    allowed_refs = [i.ref_id for i in result.affected_items] + [result.target]
+    allowed_refs += [m.project_id for m in result.milestone_impacts]
     context = {
-        "scenario": request.scenario,
-        "target": request.target,
-        "alternate_vendor": request.alternate_vendor,
+        "scenario": result.scenario,
+        "target": result.target,
         "headline": result.headline,
         "severity": result.severity,
         "cost_delta_usd": result.cost_delta_usd,
         "schedule_delta_days": result.schedule_delta_days,
-        "affected_items_count": len(result.affected_items),
+        "affected_items": [
+            {"ref_id": i.ref_id, "code": i.code, "impact": i.impact}
+            for i in result.affected_items[:12]
+        ],
         "milestone_impacts": [
-            {"milestone": m.milestone_name, "slip_days": m.slip_days}
+            {"milestone": m.milestone_name, "code": m.milestone_code, "slip_days": m.slip_days}
             for m in result.milestone_impacts
         ],
         "mitigations": result.mitigations,
+        "allowed_refs": allowed_refs,
+        "allowed_actions": sorted(_ALLOWED_ACTIONS),
     }
     system = (
-        "You are an EPC project controls analyst. Given the result of a what-if "
-        "supply-chain simulation, write a 2-paragraph executive narrative for the "
-        "project sponsor. Paragraph 1: what happens and why it matters (cite cost "
-        "delta, schedule slip, named milestones). Paragraph 2: what we'd do about "
-        "it, citing the mitigations. Plain prose, no markdown. ≤180 words."
+        "You are an EPC procurement head. Given a deterministic what-if result, "
+        "write a decision brief. Do not invent cost, days, or refs. "
+        "Return JSON: {\"why\": 2-3 sentences citing the given cost/days/milestones, "
+        "\"primary_action\": one of the allowed_actions, "
+        "\"action_ref\": one of allowed_refs or null, "
+        "\"watch\": 1-2 short strings}."
     )
-    user = "Simulation result:\n" + _json.dumps(context, default=str, indent=2)
-    return grok_chat(system, user, max_tokens=500, temperature=0.3, timeout=25)
+    parsed = grok_json(system, _json.dumps(context, default=str), max_tokens=500, timeout=20)
+    if not parsed or not parsed.get("why"):
+        return fallback
+    action = parsed.get("primary_action")
+    if action not in _ALLOWED_ACTIONS:
+        action = fallback.primary_action
+    ref = parsed.get("action_ref") or fallback.action_ref
+    if ref and ref not in allowed_refs:
+        ref = fallback.action_ref
+    watch = parsed.get("watch") if isinstance(parsed.get("watch"), list) else fallback.watch
+    return SimulationBrief(
+        why=str(parsed["why"]).strip(),
+        primary_action=action,  # type: ignore[arg-type]
+        action_ref=ref,
+        watch=[str(w) for w in watch][:3],
+        source=llm_source(),
+    )
+
+
+def _catalog(tenant_id: Optional[str]) -> Tuple[List[str], List[str], List[str], List[str]]:
+    from .sourcing import list_pos, list_prs
+    from .vendor_intel import list_vendor_summaries
+
+    vendors = [v.vendor for v in list_vendor_summaries(tenant_id=tenant_id)]
+    pos = [p.po_no for p in list_pos(tenant_id)]
+    demo = _demo(tenant_id)
+    pos.extend(p.po_number for p in demo.purchase_orders)
+    vendors.extend(p.supplier_name for p in demo.purchase_orders)
+    vendors.extend(s.name for s in demo.suppliers)
+    prs = [p.pr_no for p in list_prs(tenant_id=tenant_id)]
+    milestones: List[str] = []
+    for project in list_projects(tenant_id=tenant_id):
+        for m in project.milestones:
+            milestones.append(f"{project.project_id}:{m.code}")
+    return (
+        _uniq_cap(vendors, 40),
+        _uniq_cap(pos, 40),
+        _uniq_cap(prs, 40),
+        _uniq_cap(milestones, 40),
+    )
+
+
+def _uniq_cap(items: List[str], n: int) -> List[str]:
+    seen: Set[str] = set()
+    out: List[str] = []
+    for item in items:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+        if len(out) >= n:
+            break
+    return out
+
+
+def _match_vendor(ask: str, vendors: List[str]) -> Optional[str]:
+    low = ask.lower()
+    best: Optional[str] = None
+    for vendor in vendors:
+        if vendor.lower() in low and (best is None or len(vendor) > len(best)):
+            best = vendor
+    if best:
+        return best
+    tokens = set(re.findall(r"[a-z0-9&]+", low))
+    for vendor in vendors:
+        first = vendor.lower().split()[0]
+        if len(first) > 3 and first in tokens:
+            return vendor
+    return None
+
+
+def _extract_days(ask: str) -> Optional[int]:
+    weeks = _WEEKS_RE.search(ask)
+    if weeks:
+        return int(weeks.group(1)) * 7
+    days = _DAYS_RE.search(ask)
+    if days:
+        return int(days.group(1))
+    return None
+
+
+def _rule_parse(
+    ask: str,
+    vendors: List[str],
+    pos: List[str],
+    prs: List[str],
+    milestones: List[str],
+) -> ParseSimulationReply:
+    low = ask.lower()
+    days = _extract_days(ask)
+    po_hit = _PO_RE.search(ask)
+    pr_hit = _PR_RE.search(ask)
+    ms_hit = _MS_RE.search(ask)
+    vendor = _match_vendor(ask, vendors)
+
+    if "hold" in low or "customs" in low:
+        target = po_hit.group(1).upper() if po_hit else None
+        if target:
+            return ParseSimulationReply(ok=True, scenario="customs_hold", target=target)
+    if any(w in low for w in ("alternate", "alternative", "switch vendor", "swap")):
+        alt = None
+        if vendor:
+            others = [v for v in vendors if v != vendor]
+            alt = others[0] if others else None
+        if vendor:
+            return ParseSimulationReply(
+                ok=True, scenario="alt_vendor", target=vendor, alternate_vendor=alt, custom_slip_days=days,
+            )
+    if any(w in low for w in ("need-by", "need by", "milestone", "ros", "required on site")):
+        target = None
+        if ms_hit:
+            target = ms_hit.group(1).replace("/", ":")
+        elif pr_hit:
+            target = pr_hit.group(1).upper()
+        elif milestones:
+            target = milestones[0]
+        if target:
+            return ParseSimulationReply(
+                ok=True, scenario="need_by_move", target=target, custom_slip_days=days,
+            )
+    if any(w in low for w in ("slip", "delay", "late", "slides")) or vendor:
+        if vendor:
+            return ParseSimulationReply(
+                ok=True, scenario="vendor_slip_2w", target=vendor, custom_slip_days=days,
+            )
+    return ParseSimulationReply(ok=False, reason="Could not parse — use the cards.")
+
+
+def _target_allowed(
+    reply: ParseSimulationReply,
+    vendors: List[str],
+    pos: List[str],
+    prs: List[str],
+    milestones: List[str],
+) -> bool:
+    if not reply.target:
+        return False
+    t = reply.target
+    if reply.scenario == "vendor_slip_2w":
+        return t in vendors
+    if reply.scenario == "customs_hold":
+        return t in pos or any(p.upper() == t.upper() for p in pos)
+    if reply.scenario == "alt_vendor":
+        return t in vendors
+    if reply.scenario == "need_by_move":
+        return t in milestones or t in prs
+    return False
+
+
+def parse_simulation_ask(ask: str, tenant_id: Optional[str] = None) -> ParseSimulationReply:
+    text = (ask or "").strip()
+    if not text:
+        return ParseSimulationReply(ok=False, reason="Empty question.")
+
+    vendors, pos, prs, milestones = _catalog(tenant_id)
+    parsed: Optional[ParseSimulationReply] = None
+
+    from .llm import grok_json, is_enabled
+    if is_enabled():
+        import json as _json
+        system = (
+            "Map a buyer what-if question to a simulation request. "
+            "Use ONLY names/ids from the catalog. Do not invent POs or vendors. "
+            "Return JSON: {\"ok\": bool, \"scenario\": one of "
+            "vendor_slip_2w|customs_hold|alt_vendor|need_by_move or null, "
+            "\"target\": string or null, \"alternate_vendor\": string or null, "
+            "\"custom_slip_days\": int or null, \"reason\": string or null}."
+        )
+        user = _json.dumps({
+            "ask": text,
+            "vendors": vendors,
+            "pos": pos,
+            "prs": prs,
+            "milestones": milestones,
+        })
+        raw = grok_json(system, user, max_tokens=300, timeout=15)
+        if raw and raw.get("ok") and raw.get("scenario") and raw.get("target"):
+            parsed = ParseSimulationReply(
+                ok=True,
+                scenario=raw.get("scenario"),
+                target=raw.get("target"),
+                alternate_vendor=raw.get("alternate_vendor"),
+                custom_slip_days=raw.get("custom_slip_days"),
+            )
+
+    if parsed is None:
+        parsed = _rule_parse(text, vendors, pos, prs, milestones)
+
+    if not parsed.ok:
+        return parsed
+    if not _target_allowed(parsed, vendors, pos, prs, milestones):
+        return ParseSimulationReply(
+            ok=False, reason="Target is not in this tenant's book. Use the cards.",
+        )
+    if parsed.scenario == "customs_hold" and parsed.target:
+        parsed.target = next((p for p in pos if p.upper() == parsed.target.upper()), parsed.target)
+    return parsed

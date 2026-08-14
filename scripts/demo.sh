@@ -25,7 +25,7 @@ BACKEND_PORT="${BACKEND_PORT:-8010}"
 FRONTEND_PORT="${FRONTEND_PORT:-3001}"
 VENV_PY="$ROOT/.venv/bin/python"
 
-# Auto-source .env if present. Lets users set XAI_API_KEY, XAI_MODEL, etc.
+# Auto-source .env if present. Lets users set DEEPSEEK_API_KEY, etc.
 # without exporting in every shell. Variables are auto-exported so child
 # processes (uvicorn, next dev) see them.
 if [[ -f "$ROOT/.env" ]]; then

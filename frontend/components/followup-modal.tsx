@@ -8,6 +8,7 @@ import { useToast } from "@/lib/toast-context";
 
 type Props = {
   item: ExpediteItem;
+  initialNotes?: string;
   onClose: () => void;
   onLogged?: () => void;
 };
@@ -18,13 +19,13 @@ const TONE_HINT: Record<EmailTone, string> = {
   urgent: "48-hour response + daily updates.",
 };
 
-export function FollowupModal({ item, onClose, onLogged }: Props) {
+export function FollowupModal({ item, initialNotes, onClose, onLogged }: Props) {
   const toast = useToast();
   const [tone, setTone] = useState<EmailTone>(
     item.urgency === "escalate" ? "urgent" : item.urgency === "nudge" ? "firm" : "standard",
   );
   const [requestDocs, setRequestDocs] = useState(true);
-  const [extraNotes, setExtraNotes] = useState("");
+  const [extraNotes, setExtraNotes] = useState(initialNotes ?? "");
   const [email, setEmail] = useState<FollowupEmail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

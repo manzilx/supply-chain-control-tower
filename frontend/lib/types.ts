@@ -578,7 +578,7 @@ export type TechnicalEvaluation = {
   disqualified: boolean;
   disqualification_reason?: string | null;
   notes: string;
-  source: "manual" | "grok" | "deterministic";
+  source: "manual" | "grok" | "deepseek" | "deterministic";
   evaluated_by: string;
   evaluated_at: string;
 };
@@ -1054,7 +1054,11 @@ export type CommercialSummary = {
   top_overruns: CommercialLine[];
 };
 
-export type SimulationScenario = "vendor_slip_2w" | "customs_hold" | "alt_vendor";
+export type SimulationScenario =
+  | "vendor_slip_2w"
+  | "customs_hold"
+  | "alt_vendor"
+  | "need_by_move";
 
 export type SimulationRequest = {
   scenario: SimulationScenario;
@@ -1094,7 +1098,31 @@ export type SimulationResult = {
   milestone_impacts: MilestoneImpact[];
   mitigations: string[];
   assumptions: string[];
-  narrative?: string | null;  // LLM-synthesized executive narrative
+  narrative?: string | null;
+};
+
+export type SimulationPrimaryAction =
+  | "followup"
+  | "expedite"
+  | "open_po"
+  | "open_vendor"
+  | "open_project";
+
+export type SimulationBrief = {
+  why: string;
+  primary_action: SimulationPrimaryAction;
+  action_ref?: string | null;
+  watch: string[];
+  source: "deepseek" | "deterministic";
+};
+
+export type ParseSimulationReply = {
+  ok: boolean;
+  scenario?: SimulationScenario | null;
+  target?: string | null;
+  alternate_vendor?: string | null;
+  custom_slip_days?: number | null;
+  reason?: string | null;
 };
 
 // --- M6: AI Command Center ------------------------------------------------
@@ -1145,6 +1173,7 @@ export type WeeklyPlan = {
   items: WeeklyPlanItem[];
   assumptions: string[];
   synthesized_narrative?: string | null;
+  narrative_source?: "deepseek" | null;
 };
 
 export type ToolCallRecord = {
@@ -1210,13 +1239,13 @@ export type ChatReply = {
   reply: string;
   tool_calls: ToolCallRecord[];
   persona: AgentPersona;
-  source: "grok" | "claude" | "openai" | "deterministic";
+  source: "deepseek" | "deterministic";
   generated_at: string;
 };
 
 // --- AI feature shapes (Bundles 1-4) -------------------------------------
 
-export type AISource = "grok" | "deterministic";
+export type AISource = "deepseek" | "deterministic";
 
 export type VendorBriefing = {
   vendor: string;

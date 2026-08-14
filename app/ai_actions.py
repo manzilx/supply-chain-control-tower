@@ -16,7 +16,7 @@ import json as _json
 from datetime import datetime, timezone
 from typing import Optional
 
-from .llm import grok_chat, grok_json, is_enabled
+from .llm import grok_chat, grok_json, is_enabled, llm_source
 from .planning import get_bom, get_project, list_projects
 from .sample_data import build_demo_request
 from .schemas import (
@@ -109,7 +109,7 @@ def bom_autofill(project_id: str) -> BOMAutofillReply:
                 return BOMAutofillReply(
                     project_id=project_id,
                     suggestions=suggestions,
-                    source="grok",
+                    source=llm_source(),
                     generated_at=datetime.now(timezone.utc),
                 )
 
@@ -215,7 +215,7 @@ def draft_spec_request(project_id: str, bom_item_id: str) -> Optional[SpecReques
                 to_placeholder=to_placeholder,
                 subject=subject,
                 body=body,
-                source="grok",
+                source=llm_source(),
                 generated_at=datetime.now(timezone.utc),
             )
 
@@ -290,7 +290,7 @@ def explain_entity(request: ExplainRequest) -> ExplainReply:
                 headline=str(parsed["headline"])[:140],
                 body=str(parsed["body"]),
                 bullets=[str(b) for b in bullets][:6],
-                source="grok",
+                source=llm_source(),
                 generated_at=datetime.now(timezone.utc),
             )
 

@@ -345,7 +345,7 @@ def generate_risk_mitigations(risk: RiskRecord):
 
     from datetime import datetime as _dt, timezone as _tz
     from .schemas import RiskMitigationsReply
-    from .llm import grok_json, is_enabled
+    from .llm import grok_json, is_enabled, llm_source
 
     if is_enabled():
         import json as _json
@@ -373,7 +373,7 @@ def generate_risk_mitigations(risk: RiskRecord):
                 return RiskMitigationsReply(
                     risk_title=risk.title,
                     mitigations=[str(m) for m in mits][:5],
-                    source="grok",
+                    source=llm_source(),
                     generated_at=_dt.now(_tz.utc),
                 )
 

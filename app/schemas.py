@@ -518,7 +518,7 @@ class TechnicalEvaluation(BaseModel):
     disqualified: bool = False
     disqualification_reason: Optional[str] = None
     notes: str = ""
-    source: Literal["manual", "grok", "deterministic"] = "manual"
+    source: Literal["manual", "grok", "deepseek", "deterministic"] = "manual"
     evaluated_by: str = "Control Tower"
     evaluated_at: datetime
 
@@ -606,7 +606,7 @@ AuditSource = Literal["ui", "api", "sap_webhook", "ai", "scheduled_job", "csv_up
 class AuditEvent(BaseModel):
     event_id: str
     occurred_at: datetime
-    actor: str = "system"                # user_id, "system", "grok", "sap_cpi"
+    actor: str = "system"                # user_id, "system", "deepseek", "sap_cpi"
     action: AuditAction
     entity_kind: AuditEntityKind
     entity_id: str                       # e.g. "PR-00001", "HYD-CV-001", "SPO-00012"
@@ -930,7 +930,7 @@ class VendorBriefing(BaseModel):
     body: str
     watchlist: List[str]
     generated_at: datetime
-    source: Literal["grok", "deterministic"]
+    source: Literal["deepseek", "deterministic"]
 
 
 class RiskMitigationsReply(BaseModel):
@@ -938,7 +938,7 @@ class RiskMitigationsReply(BaseModel):
 
     risk_title: str
     mitigations: List[str]
-    source: Literal["grok", "deterministic"]
+    source: Literal["deepseek", "deterministic"]
     generated_at: datetime
 
 
@@ -953,7 +953,7 @@ class ExplainReply(BaseModel):
     headline: str
     body: str
     bullets: List[str]
-    source: Literal["grok", "deterministic"]
+    source: Literal["deepseek", "deterministic"]
     generated_at: datetime
 
 
@@ -971,7 +971,7 @@ class BOMAutofillSuggestion(BaseModel):
 class BOMAutofillReply(BaseModel):
     project_id: str
     suggestions: List[BOMAutofillSuggestion]
-    source: Literal["grok", "deterministic"]
+    source: Literal["deepseek", "deterministic"]
     generated_at: datetime
 
 
@@ -981,7 +981,7 @@ class SpecRequestReply(BaseModel):
     to_placeholder: str
     subject: str
     body: str
-    source: Literal["grok", "deterministic"]
+    source: Literal["deepseek", "deterministic"]
     generated_at: datetime
 
 
@@ -1171,7 +1171,9 @@ class CommercialSummary(BaseModel):
 # --- Risk simulations -------------------------------------------------------
 
 
-SimulationScenario = Literal["vendor_slip_2w", "customs_hold", "alt_vendor"]
+SimulationScenario = Literal[
+    "vendor_slip_2w", "customs_hold", "alt_vendor", "need_by_move"
+]
 
 
 class SimulationRequest(BaseModel):
@@ -1212,7 +1214,33 @@ class SimulationResult(BaseModel):
     milestone_impacts: List[MilestoneImpact]
     mitigations: List[str]
     assumptions: List[str]
-    narrative: Optional[str] = None  # LLM-synthesized executive narrative; None on deterministic fallback
+    narrative: Optional[str] = None  # kept for older clients; prefer SimulationBrief
+
+
+SimulationPrimaryAction = Literal[
+    "followup", "expedite", "open_po", "open_vendor", "open_project"
+]
+
+
+class SimulationBrief(BaseModel):
+    why: str
+    primary_action: SimulationPrimaryAction
+    action_ref: Optional[str] = None
+    watch: List[str] = Field(default_factory=list)
+    source: Literal["deepseek", "deterministic"] = "deterministic"
+
+
+class ParseSimulationRequest(BaseModel):
+    ask: str
+
+
+class ParseSimulationReply(BaseModel):
+    ok: bool = False
+    scenario: Optional[SimulationScenario] = None
+    target: Optional[str] = None
+    alternate_vendor: Optional[str] = None
+    custom_slip_days: Optional[int] = None
+    reason: Optional[str] = None
 
 
 # --- M6: AI Command Center --------------------------------------------------
@@ -1248,6 +1276,7 @@ class WeeklyPlan(BaseModel):
     items: List[WeeklyPlanItem]
     assumptions: List[str]
     synthesized_narrative: Optional[str] = None  # 1-2 paragraph LLM synthesis over the whole plan
+    narrative_source: Optional[Literal["deepseek"]] = None
 
 
 class KpiSnapshot(BaseModel):
@@ -1397,7 +1426,7 @@ class ChatReply(BaseModel):
     reply: str
     tool_calls: List[ToolCallRecord]
     persona: AgentPersona
-    source: Literal["grok", "claude", "openai", "deterministic"]
+    source: Literal["deepseek", "deterministic"]
     generated_at: datetime
 
 

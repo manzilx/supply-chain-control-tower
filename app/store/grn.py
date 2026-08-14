@@ -77,7 +77,7 @@ def create_from_sync(device: DeviceContext, record: FieldGrnRecord, photo_bytes:
 
     from .. import llm
 
-    if record.source_kind == "free_issue" or not llm.is_enabled():
+    if record.source_kind == "free_issue" or not llm.vision_enabled():
         extraction_status = "skipped"
     else:
         extraction_status = "pending"

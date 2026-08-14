@@ -384,7 +384,7 @@ def build_vendor_briefing(name: str, tenant_id: Optional[str] = None):
 
     from datetime import datetime as _dt, timezone as _tz
     from .schemas import VendorBriefing
-    from .llm import grok_json, is_enabled
+    from .llm import grok_json, is_enabled, llm_source
 
     scorecard = get_vendor_scorecard(name, tenant_id=tenant_id)
     if not scorecard:
@@ -451,7 +451,7 @@ def build_vendor_briefing(name: str, tenant_id: Optional[str] = None):
                 body=parsed["body"],
                 watchlist=[str(w) for w in watchlist][:6],
                 generated_at=_dt.now(_tz.utc),
-                source="grok",
+                source=llm_source(),
             )
 
     # Deterministic fallback

@@ -54,50 +54,33 @@ def _build_prompt(payload: AgentRequest, risks: List[RiskRecord]) -> str:
 
 
 def generate_ai_brief(payload: AgentRequest, risks: List[RiskRecord]) -> str:
-    """Generate the executive prose brief for /api/analyze via Grok.
+    """Generate the executive prose brief for /api/analyze via DeepSeek.
 
-    Uses the OpenAI-compatible chat-completions endpoint that xAI exposes.
     Falls back to a deterministic templated response if the key is missing
     or the call fails.
     """
 
-    api_key = os.getenv("XAI_API_KEY", "").strip()
-    model = os.getenv("XAI_MODEL", "grok-4-1-fast-reasoning").strip()
-    base_url = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1").rstrip("/")
-    reasoning_effort = os.getenv("XAI_REASONING_EFFORT", "").strip()
+    from .llm import chat_completions, is_enabled
 
-    if not api_key:
+    if not is_enabled():
         return _fallback_response(payload, risks)
 
-    body = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": "You are a crisp, practical AI supply-chain advisor."},
-            {"role": "user", "content": _build_prompt(payload, risks)},
-        ],
-        "temperature": 0.3,
-    }
-    if reasoning_effort:
-        body["reasoning_effort"] = reasoning_effort
-
-    req = request.Request(
-        url=f"{base_url}/chat/completions",
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
+    parsed = chat_completions(
+        {
+            "messages": [
+                {"role": "system", "content": "You are a crisp, practical AI supply-chain advisor."},
+                {"role": "user", "content": _build_prompt(payload, risks)},
+            ],
+            "temperature": 0.3,
         },
-        method="POST",
+        timeout=30,
     )
-    try:
-        with request.urlopen(req, timeout=30) as response:
-            parsed = json.loads(response.read().decode("utf-8"))
-        return (
-            parsed.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-            .strip()
-            or _fallback_response(payload, risks)
-        )
-    except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError, KeyError, ValueError):
+    if not parsed:
         return _fallback_response(payload, risks)
+    return (
+        parsed.get("choices", [{}])[0]
+        .get("message", {})
+        .get("content", "")
+        .strip()
+        or _fallback_response(payload, risks)
+    )

@@ -84,7 +84,11 @@ from .schemas import (
     Shipment,
     ShipmentEvent,
     SupplierRecord,
+    ParseSimulationRequest,
+    ParseSimulationReply,
+    SimulationBrief,
     SimulationRequest,
+    SimulationResult,
     BOMAutofillReply,
     ExplainReply,
     ExplainRequest,
@@ -100,7 +104,6 @@ from .schemas import (
     SetTechnicalEvaluationRequest,
     SetWeightsRequest,
     TraceabilityChain,
-    SimulationResult,
     SpecRequestReply,
     TBE,
     TechnicalCriterion,
@@ -1296,6 +1299,24 @@ async def api_simulate(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.post("/api/risk/simulate/brief", response_model=SimulationBrief)
+async def api_simulate_brief(
+    result: SimulationResult,
+    user: Annotated[User, Depends(current_user)],
+) -> SimulationBrief:
+    from .simulations import build_simulation_brief
+    return build_simulation_brief(result)
+
+
+@app.post("/api/risk/simulate/parse", response_model=ParseSimulationReply)
+async def api_simulate_parse(
+    request: ParseSimulationRequest,
+    user: Annotated[User, Depends(current_user)],
+) -> ParseSimulationReply:
+    from .simulations import parse_simulation_ask
+    return parse_simulation_ask(request.ask, tenant_id=user.tenant_id)
+
+
 # --- M6: AI Command Center --------------------------------------------------
 
 
@@ -1390,12 +1411,16 @@ async def api_ai_status(
     user: Annotated[User, Depends(current_user)],
 ) -> dict:
     """AI subsystem health — provider, model, call stats."""
-    from .llm import XAI_BASE, XAI_MODEL, get_stats, is_enabled
+    from .llm import get_stats, is_enabled, provider_info, vision_enabled
+    info = provider_info()
     return {
         "enabled": is_enabled(),
-        "provider": "xai" if is_enabled() else "deterministic-fallback",
-        "model": XAI_MODEL if is_enabled() else None,
-        "base_url": XAI_BASE if is_enabled() else None,
+        "provider": info["name"] if info else "deterministic-fallback",
+        "model": info["model"] if info else None,
+        "base_url": info["base"] if info else None,
+        # Text-only on deepseek-v4-flash; surfaced so an operator can see why
+        # GRN photo extraction is skipping rather than guessing.
+        "vision": vision_enabled(),
         "stats": get_stats(),
     }
 
@@ -1422,7 +1447,7 @@ async def api_risk_mitigations(
     """Generate 3 concrete mitigations for a risk record.
 
     Send the risk record (as returned in AgentResponse.top_risks) in the body.
-    Returns LLM-generated mitigations when XAI_API_KEY is set, otherwise
+    Returns LLM-generated mitigations when DEEPSEEK_API_KEY is set, otherwise
     falls back to deterministic templates.
     """
 
