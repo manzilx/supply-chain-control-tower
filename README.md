@@ -53,6 +53,10 @@ Every AI feature routes through **DeepSeek** (`deepseek-v4-flash`) when `DEEPSEE
 
 **Activate:**
 
+In the running app: sign in as an **admin** persona → **SAP / Integrations** → paste `DEEPSEEK_API_KEY` → Save key. The key is stored under `STATE_DIR` (gitignored) and is never returned by the API.
+
+Or via env (still supported):
+
 ```bash
 cp .env.example .env
 # edit .env, set DEEPSEEK_API_KEY=sk-...

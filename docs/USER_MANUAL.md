@@ -446,6 +446,10 @@ Every AI feature has two paths: **DeepSeek-powered** (when `DEEPSEEK_API_KEY` is
 
 ### Setup
 
+Sign in as an **admin** → open **SAP / Integrations** → paste the DeepSeek API key → **Save key**. The key never comes back in API responses (status shows only `••••` + last 4).
+
+Or via env:
+
 ```bash
 cp .env.example .env
 # edit .env: set DEEPSEEK_API_KEY=sk-...

@@ -113,6 +113,7 @@ from .schemas import (
     Tenant,
     User,
     VendorBriefing,
+    SetDeepSeekKeyRequest,
     VendorScorecard,
     VendorSummary,
     WeeklyPlan,
@@ -225,6 +226,8 @@ async def _startup_restore() -> None:
     from . import persistence
     persistence.restore_all()
     persistence.start_background_snapshot()
+    from .llm import load_persisted_key
+    load_persisted_key()
 
 
 @app.on_event("startup")
@@ -1410,18 +1413,78 @@ async def api_chat_stream(
 async def api_ai_status(
     user: Annotated[User, Depends(current_user)],
 ) -> dict:
-    """AI subsystem health — provider, model, call stats."""
-    from .llm import get_stats, is_enabled, provider_info, vision_enabled
+    """AI subsystem health — provider, model, call stats. Never includes the key."""
+    from .llm import (
+        configured_via,
+        get_stats,
+        is_enabled,
+        key_hint,
+        provider_info,
+        vision_enabled,
+    )
     info = provider_info()
     return {
         "enabled": is_enabled(),
         "provider": info["name"] if info else "deterministic-fallback",
         "model": info["model"] if info else None,
         "base_url": info["base"] if info else None,
-        # Text-only on deepseek-v4-flash; surfaced so an operator can see why
-        # GRN photo extraction is skipping rather than guessing.
         "vision": vision_enabled(),
+        "key_hint": key_hint(),
+        "configured_via": configured_via(),
         "stats": get_stats(),
+    }
+
+
+@app.post("/api/ai/key")
+async def api_set_deepseek_key(
+    body: SetDeepSeekKeyRequest,
+    user: Annotated[User, Depends(require_role("admin"))],
+) -> dict:
+    """Paste a DeepSeek API key. Stored under STATE_DIR, never returned."""
+    from .llm import set_api_key
+    from .audit import emit
+
+    try:
+        hint = set_api_key(body.api_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    emit(
+        action="updated",
+        entity_kind="system",
+        entity_id="deepseek",
+        subject="DeepSeek API key",
+        summary=f"In-app DeepSeek key saved ({hint})",
+        actor=user.user_id,
+        source="api",
+        tenant_id=user.tenant_id,
+    )
+    return {"ok": True, "enabled": True, "key_hint": hint, "configured_via": "runtime"}
+
+
+@app.delete("/api/ai/key")
+async def api_clear_deepseek_key(
+    user: Annotated[User, Depends(require_role("admin"))],
+) -> dict:
+    """Drop the in-app key. Process env DEEPSEEK_API_KEY (if any) takes over."""
+    from .llm import clear_api_key, configured_via, is_enabled, key_hint
+    from .audit import emit
+
+    clear_api_key()
+    emit(
+        action="deleted",
+        entity_kind="system",
+        entity_id="deepseek",
+        subject="DeepSeek API key",
+        summary="In-app DeepSeek key cleared",
+        actor=user.user_id,
+        source="api",
+        tenant_id=user.tenant_id,
+    )
+    return {
+        "ok": True,
+        "enabled": is_enabled(),
+        "key_hint": key_hint(),
+        "configured_via": configured_via(),
     }
 
 

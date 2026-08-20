@@ -942,6 +942,12 @@ class VendorBriefing(BaseModel):
     source: Literal["deepseek", "deterministic"]
 
 
+class SetDeepSeekKeyRequest(BaseModel):
+    """Admin pastes a DeepSeek key in the Integrations UI. Never echoed back."""
+
+    api_key: str = Field(min_length=8, max_length=256)
+
+
 class RiskMitigationsReply(BaseModel):
     """LLM-generated mitigations for a single risk record."""
 

@@ -1220,6 +1220,9 @@ export type AiStatus = {
   provider: string;
   model?: string | null;
   base_url?: string | null;
+  vision?: boolean;
+  key_hint?: string | null;
+  configured_via?: "runtime" | "env" | null;
   stats: {
     calls: number;
     errors: number;

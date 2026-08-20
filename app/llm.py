@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any, Optional
 from urllib import error, request
 
@@ -25,8 +26,80 @@ from urllib import error, request
 DEEPSEEK_BASE = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-v4-flash"
 
+# In-app key (Integrations page) overrides the process env for this process.
+# None = no override; fall back to DEEPSEEK_API_KEY. Persisted under STATE_DIR
+# (gitignored), never returned by /api/ai/status.
+_RUNTIME_KEY: Optional[str] = None
+
+
+def _key_path() -> Path:
+    from .persistence import STATE_DIR
+    return STATE_DIR / "deepseek.key"
+
+
+def load_persisted_key() -> None:
+    """Restore a key saved from the Integrations page. Called on startup."""
+    global _RUNTIME_KEY
+    path = _key_path()
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return
+    if raw:
+        _RUNTIME_KEY = raw
+
+
+def reset_runtime_key() -> None:
+    """Test helper: drop the in-memory override. Does not delete the file."""
+    global _RUNTIME_KEY
+    _RUNTIME_KEY = None
+
+
+def set_api_key(api_key: str) -> str:
+    """Save a DeepSeek key for this process and persist it. Returns the hint."""
+    global _RUNTIME_KEY
+    key = (api_key or "").strip()
+    if len(key) < 8:
+        raise ValueError("API key is too short")
+    _RUNTIME_KEY = key
+    path = _key_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(key + "\n", encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return key_hint() or ""
+
+
+def clear_api_key() -> None:
+    """Remove the in-app key. Env DEEPSEEK_API_KEY (if set) becomes active again."""
+    global _RUNTIME_KEY
+    _RUNTIME_KEY = None
+    try:
+        _key_path().unlink()
+    except OSError:
+        pass
+
+
+def key_hint() -> Optional[str]:
+    key = _deepseek_key()
+    if not key:
+        return None
+    return f"••••{key[-4:]}"
+
+
+def configured_via() -> Optional[str]:
+    if _RUNTIME_KEY:
+        return "runtime"
+    if os.getenv("DEEPSEEK_API_KEY", "").strip():
+        return "env"
+    return None
+
 
 def _deepseek_key() -> str:
+    if _RUNTIME_KEY:
+        return _RUNTIME_KEY
     return os.getenv("DEEPSEEK_API_KEY", "").strip()
 
 
