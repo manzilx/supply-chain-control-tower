@@ -578,7 +578,7 @@ export type TechnicalEvaluation = {
   disqualified: boolean;
   disqualification_reason?: string | null;
   notes: string;
-  source: "manual" | "grok" | "deepseek" | "deterministic";
+  source: "manual" | "deepseek" | "deterministic";
   evaluated_by: string;
   evaluated_at: string;
 };

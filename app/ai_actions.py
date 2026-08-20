@@ -16,7 +16,7 @@ import json as _json
 from datetime import datetime, timezone
 from typing import Optional
 
-from .llm import grok_chat, grok_json, is_enabled, llm_source
+from .llm import llm_chat, llm_json, is_enabled, llm_source
 from .planning import get_bom, get_project, list_projects
 from .sample_data import build_demo_request
 from .schemas import (
@@ -85,7 +85,7 @@ def bom_autofill(project_id: str) -> BOMAutofillReply:
             "\"suggested_supplier\": str|null, \"reason\": str}]}"
         )
         user = "Match these BOM rows:\n" + _json.dumps(context, default=str, indent=2)
-        parsed = grok_json(system, user, max_tokens=2000, timeout=45)
+        parsed = llm_json(system, user, max_tokens=2000, timeout=45)
         if parsed and isinstance(parsed.get("suggestions"), list):
             by_id = {i.bom_item_id: i for i in sparse}
             suggestions = []
@@ -207,7 +207,7 @@ def draft_spec_request(project_id: str, bom_item_id: str) -> Optional[SpecReques
             "'Best regards,' and 'Procurement — Control Tower'. Plain prose, no markdown."
         )
         user = "Draft the email body using only this data:\n" + _json.dumps(context, default=str, indent=2)
-        body = grok_chat(system, user, max_tokens=500, temperature=0.3, timeout=25)
+        body = llm_chat(system, user, max_tokens=500, temperature=0.3, timeout=25)
         if body:
             return SpecRequestReply(
                 bom_item_id=item.bom_item_id,
@@ -281,7 +281,7 @@ def explain_entity(request: ExplainRequest, tenant_id: Optional[str] = None) -> 
             f"Entity kind: {request.kind}\nEntity id: {request.id}\n\n"
             f"Data:\n" + _json.dumps(payload, default=str, indent=2)
         )
-        parsed = grok_json(system, user, max_tokens=700)
+        parsed = llm_json(system, user, max_tokens=700)
         if parsed and parsed.get("headline") and parsed.get("body"):
             bullets = parsed.get("bullets") or []
             return ExplainReply(

@@ -501,7 +501,7 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
 def _llm_weekly_narrative(plan: WeeklyPlan) -> Optional[str]:
     """Compose a 2-paragraph executive narrative over the deterministic plan."""
 
-    from .llm import grok_chat, is_enabled
+    from .llm import llm_chat, is_enabled
 
     if not is_enabled():
         return None
@@ -531,4 +531,4 @@ def _llm_weekly_narrative(plan: WeeklyPlan) -> Optional[str]:
         "no headings, no lists. ≤180 words."
     )
     user = "This week's plan:\n" + _json.dumps(summary, default=str, indent=2)
-    return grok_chat(system, user, max_tokens=500, temperature=0.4, timeout=25)
+    return llm_chat(system, user, max_tokens=500, temperature=0.4, timeout=25)

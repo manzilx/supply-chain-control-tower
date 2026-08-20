@@ -190,13 +190,13 @@ def _map_headers(entity: str, headers: List[str]) -> Tuple[Dict[str, int], List[
 
 def _llm_assist_mapping(entity: str, unmapped: List[str], mapping: Dict[str, int], headers: List[str]) -> Dict[str, int]:
     """One batched DeepSeek call to map leftover columns. No-op without a key."""
-    from .llm import grok_json, is_enabled
+    from .llm import llm_json, is_enabled
     if not unmapped or not is_enabled():
         return mapping
     missing_fields = [f for f in SYNONYMS[entity] if f not in mapping]
     if not missing_fields:
         return mapping
-    result = grok_json(
+    result = llm_json(
         "You map spreadsheet column headers to canonical schema fields for a "
         "procurement system. Reply with a JSON object whose keys are the given "
         "headers and values are one of the canonical field names or null.",

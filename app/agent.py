@@ -308,7 +308,7 @@ _SYSTEM_PROMPT = (
 )
 
 
-def _grok_tools_schema() -> list:
+def _llm_tools_schema() -> list:
     """OpenAI-style function tool schema (DeepSeek follows the same shape)."""
 
     return [
@@ -324,7 +324,7 @@ def _grok_tools_schema() -> list:
     ]
 
 
-def _grok_call(messages: list, tools: list) -> dict:
+def _llm_call(messages: list, tools: list) -> dict:
     from .llm import chat_completions, is_enabled
 
     if not is_enabled():
@@ -341,13 +341,13 @@ def _grok_call(messages: list, tools: list) -> dict:
     return parsed
 
 
-def dispatch_grok(
+def dispatch_llm(
     message: str,
     history: List[ChatTurn],
     page: str | None = None,
     on_event=None,
 ) -> ChatReply:
-    tools_schema = _grok_tools_schema()
+    tools_schema = _llm_tools_schema()
 
     system = _SYSTEM_PROMPT
     if page:
@@ -370,7 +370,7 @@ def dispatch_grok(
 
     for _ in range(MAX_TURNS):
         _emit("status", "thinking")
-        response = _grok_call(messages, tools_schema)
+        response = _llm_call(messages, tools_schema)
         choice = (response.get("choices") or [{}])[0]
         msg = choice.get("message") or {}
         finish_reason = choice.get("finish_reason")
@@ -444,7 +444,7 @@ def dispatch(
 
     if is_enabled():
         try:
-            return dispatch_grok(message, history, page=page, on_event=on_event)
+            return dispatch_llm(message, history, page=page, on_event=on_event)
         except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError, KeyError, RuntimeError):
             # Fall through to deterministic on any LLM hiccup.
             pass

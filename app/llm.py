@@ -126,7 +126,7 @@ def chat_completions(
         return None
 
 
-def grok_chat(
+def llm_chat(
     system: str,
     user: str,
     *,
@@ -135,7 +135,7 @@ def grok_chat(
     temperature: float = 0.3,
     timeout: int = 30,
 ) -> Optional[str]:
-    """Single-turn DeepSeek chat. Name is historical. None on any failure."""
+    """Single-turn DeepSeek chat. None on any failure."""
     if not is_enabled():
         return None
 
@@ -168,8 +168,8 @@ def grok_chat(
     )
 
 
-def grok_json(system: str, user: str, *, max_tokens: int = 800, timeout: int = 30) -> Optional[dict]:
-    raw = grok_chat(system, user, json_mode=True, max_tokens=max_tokens, timeout=timeout)
+def llm_json(system: str, user: str, *, max_tokens: int = 800, timeout: int = 30) -> Optional[dict]:
+    raw = llm_chat(system, user, json_mode=True, max_tokens=max_tokens, timeout=timeout)
     if not raw:
         return None
     try:
@@ -187,7 +187,7 @@ def grok_json(system: str, user: str, *, max_tokens: int = 800, timeout: int = 3
         return None
 
 
-def grok_vision_json(
+def vision_json(
     system: str,
     user: str,
     image_path: str,

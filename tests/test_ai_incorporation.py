@@ -27,7 +27,7 @@ from tests.test_store_grn import enrol, make_store, sync_grn
 
 def test_vision_stays_off_and_matcher_has_no_llm() -> None:
     assert vision_enabled() is False
-    assert not hasattr(matching, "grok_json")
+    assert not hasattr(matching, "llm_json")
     assert not hasattr(matching, "chat_completions")
     assert "get_pending_approvals" in TOOLS
     assert "get_grn_queue" in TOOLS

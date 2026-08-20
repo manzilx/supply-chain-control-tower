@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 Severity = Literal["low", "medium", "high", "critical"]
@@ -518,9 +518,18 @@ class TechnicalEvaluation(BaseModel):
     disqualified: bool = False
     disqualification_reason: Optional[str] = None
     notes: str = ""
-    source: Literal["manual", "grok", "deepseek", "deterministic"] = "manual"
+    source: Literal["manual", "deepseek", "deterministic"] = "manual"
     evaluated_by: str = "Control Tower"
     evaluated_at: datetime
+
+    @field_validator("source", mode="before")
+    @classmethod
+    def _legacy_grok_is_deepseek(cls, v):
+        # Older snapshots wrote source="grok" when xAI was the provider.
+        # DeepSeek is the only LLM now; accept the old tag and normalize.
+        if v == "grok":
+            return "deepseek"
+        return v
 
 
 class CombinedEvaluation(BaseModel):

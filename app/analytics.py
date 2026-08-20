@@ -345,7 +345,7 @@ def generate_risk_mitigations(risk: RiskRecord):
 
     from datetime import datetime as _dt, timezone as _tz
     from .schemas import RiskMitigationsReply
-    from .llm import grok_json, is_enabled, llm_source
+    from .llm import llm_json, is_enabled, llm_source
 
     if is_enabled():
         import json as _json
@@ -366,7 +366,7 @@ def generate_risk_mitigations(risk: RiskRecord):
             "structural last. Return JSON: {\"mitigations\": [str, str, str]}."
         )
         user = "Risk:\n" + _json.dumps(context, default=str, indent=2)
-        parsed = grok_json(system, user, max_tokens=400)
+        parsed = llm_json(system, user, max_tokens=400)
         if parsed:
             mits = parsed.get("mitigations") or []
             if isinstance(mits, list) and mits:

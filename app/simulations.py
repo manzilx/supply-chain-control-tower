@@ -747,7 +747,7 @@ def _deterministic_brief(result: SimulationResult) -> SimulationBrief:
 def build_simulation_brief(result: SimulationResult) -> SimulationBrief:
     """Decision brief. DeepSeek when enabled; always falls back to the headline."""
     fallback = _deterministic_brief(result)
-    from .llm import grok_json, is_enabled, llm_source
+    from .llm import llm_json, is_enabled, llm_source
 
     if not is_enabled():
         return fallback
@@ -782,7 +782,7 @@ def build_simulation_brief(result: SimulationResult) -> SimulationBrief:
         "\"action_ref\": one of allowed_refs or null, "
         "\"watch\": 1-2 short strings}."
     )
-    parsed = grok_json(system, _json.dumps(context, default=str), max_tokens=500, timeout=20)
+    parsed = llm_json(system, _json.dumps(context, default=str), max_tokens=500, timeout=20)
     if not parsed or not parsed.get("why"):
         return fallback
     action = parsed.get("primary_action")
@@ -939,7 +939,7 @@ def parse_simulation_ask(ask: str, tenant_id: Optional[str] = None) -> ParseSimu
     vendors, pos, prs, milestones = _catalog(tenant_id)
     parsed: Optional[ParseSimulationReply] = None
 
-    from .llm import grok_json, is_enabled
+    from .llm import llm_json, is_enabled
     if is_enabled():
         import json as _json
         system = (
@@ -957,7 +957,7 @@ def parse_simulation_ask(ask: str, tenant_id: Optional[str] = None) -> ParseSimu
             "prs": prs,
             "milestones": milestones,
         })
-        raw = grok_json(system, user, max_tokens=300, timeout=15)
+        raw = llm_json(system, user, max_tokens=300, timeout=15)
         if raw and raw.get("ok") and raw.get("scenario") and raw.get("target"):
             parsed = ParseSimulationReply(
                 ok=True,

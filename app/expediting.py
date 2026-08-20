@@ -442,7 +442,7 @@ def _llm_followup_body(*, item: ExpediteItem, tone: str, docs: list, extra_notes
     operator-supplied extra context.
     """
 
-    from .llm import grok_chat, is_enabled
+    from .llm import llm_chat, is_enabled
 
     if not is_enabled():
         return None
@@ -480,7 +480,7 @@ def _llm_followup_body(*, item: ExpediteItem, tone: str, docs: list, extra_notes
         f"{tone_guide}\n\nDraft the email body only (no subject, no headers). "
         f"Use this data:\n\n" + _json.dumps(context, default=str, indent=2)
     )
-    return grok_chat(system, user, max_tokens=600, temperature=0.4, timeout=25)
+    return llm_chat(system, user, max_tokens=600, temperature=0.4, timeout=25)
 
 
 @invalidates_cache

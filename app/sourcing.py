@@ -779,7 +779,7 @@ def _llm_award_rationale(
     the templated comparison rationale.
     """
 
-    from .llm import grok_chat, is_enabled
+    from .llm import llm_chat, is_enabled
     from .vendor_intel import get_vendor_scorecard
 
     if not is_enabled():
@@ -843,7 +843,7 @@ def _llm_award_rationale(
         "Write the award rationale for this RFQ. Data follows:\n\n"
         + _json.dumps(summary, default=str, indent=2)
     )
-    return grok_chat(system, user, max_tokens=250, temperature=0.3, timeout=25)
+    return llm_chat(system, user, max_tokens=250, temperature=0.3, timeout=25)
 
 
 # --- SAP CPI submission ------------------------------------------------------

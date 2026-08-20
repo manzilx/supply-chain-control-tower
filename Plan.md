@@ -105,7 +105,7 @@ Every domain object carries `tenant_id`; cross-tenant reads return 404; cross-te
 
 DeepSeek (`deepseek-v4-flash`) is the only LLM. Every AI surface already in the product — agent tool-calling, overview brief, risk mitigations, vendor briefing, simulate brief/parse, weekly-plan narrative, award rationale, TBE, follow-up emails, BOM autofill, spec request, ingest column mapping, explain — goes through `app/llm.py`. Missing key or HTTP failure → deterministic template. `source` is `"deepseek"` or `"deterministic"`. `XAI_API_KEY` is ignored.
 
-**Do not:** turn on `DEEPSEEK_VISION` against flash (image parts 400); put an LLM in `app/store/matching.py` (wrong PO match posts stock); add a second provider; treat Grok/`grok_*` helper names as a live xAI path (historical names only).
+**Do not:** turn on `DEEPSEEK_VISION` against flash (image parts 400); put an LLM in `app/store/matching.py` (wrong PO match posts stock); add a second provider. Callers use `llm_chat` / `llm_json` / `vision_json` in `app/llm.py` — there is no Grok/xAI path.
 
 **Do:** give the agent tools over every live queue so it cannot hallucinate empty modules. Approvals and site-store GRNs were the remaining holes — `get_pending_approvals` and `get_grn_queue` are read-only, tenant-scoped, and the weekly plan now raises P1s from those queues so the synthesis narrative can see them. Explain works on a GRN without ever auto-matching.
 
