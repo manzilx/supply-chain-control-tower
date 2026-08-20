@@ -3,10 +3,10 @@
 - bom_autofill        : propose category + supplier for BOM rows missing them
 - draft_spec_request  : email to engineering for a missing-spec BOM item
 - explain_entity      : generic 'what should I know' brief over any entity
-                        (PO, vendor, risk, project, RFQ, PR)
+                        (PO, vendor, risk, project, RFQ, PR, GRN)
 - propose_vendor_onboarding : submit new vendor through approval gate
 
-Each function tries Grok and falls back to deterministic output, returning a
+Each function tries DeepSeek and falls back to deterministic output, returning a
 typed schema with `source` indicating which path was used.
 """
 
@@ -253,10 +253,10 @@ def draft_spec_request(project_id: str, bom_item_id: str) -> Optional[SpecReques
 # ---------------------------------------------------------------------------
 
 
-def explain_entity(request: ExplainRequest) -> ExplainReply:
+def explain_entity(request: ExplainRequest, tenant_id: Optional[str] = None) -> ExplainReply:
     """Build a 'what should I know about this' brief over a single entity."""
 
-    payload, deterministic_fallback = _gather_context(request)
+    payload, deterministic_fallback = _gather_context(request, tenant_id=tenant_id)
 
     if not payload:
         return ExplainReply(
@@ -305,7 +305,7 @@ def explain_entity(request: ExplainRequest) -> ExplainReply:
     )
 
 
-def _gather_context(request: ExplainRequest):
+def _gather_context(request: ExplainRequest, tenant_id: Optional[str] = None):
     """Look up the entity and return (data_payload, deterministic_fallback_dict).
 
     Returns (None, _) if the entity is not found.
@@ -480,6 +480,71 @@ def _gather_context(request: ExplainRequest):
                 f"Buyer: {pr.buyer}",
                 f"Strategy: {pr.strategy}",
                 f"Status: {pr.status}",
+            ],
+        }
+        return payload, fb
+
+    if kind == "grn":
+        if not tenant_id:
+            return None, None
+        import sqlite3
+
+        from .store.db import connect
+        from .store.grn import get_grn_detail
+
+        try:
+            conn = connect()
+            try:
+                row = conn.execute(
+                    "SELECT grn_id FROM grn WHERE tenant_id = ? AND (grn_id = ? OR grn_no = ?)",
+                    (tenant_id, eid, eid),
+                ).fetchone()
+            finally:
+                conn.close()
+        except sqlite3.OperationalError:
+            return None, None
+        if not row:
+            return None, None
+        detail = get_grn_detail(row["grn_id"], tenant_id)
+        lines = [
+            {
+                "line_no": ln.line_no,
+                "description": ln.description_raw,
+                "qty_received": ln.qty_received,
+                "match_status": ln.match_status,
+                "po_no": ln.po_no,
+            }
+            for ln in detail.lines
+        ]
+        unmatched = sum(1 for ln in detail.lines if ln.match_status in ("unmatched", "suggested"))
+        payload = {
+            "grn_id": detail.grn_id,
+            "grn_no": detail.grn_no,
+            "status": detail.status,
+            "vendor": detail.vendor_name or detail.vendor_name_raw,
+            "challan_no": detail.challan_no,
+            "extraction_status": detail.extraction_status,
+            "line_count": len(detail.lines),
+            "unmatched_or_suggested": unmatched,
+            "lines": lines,
+        }
+        fb = {
+            "headline": (
+                f"GRN {detail.grn_no or detail.grn_id} — {detail.status} — "
+                f"{detail.vendor_name or detail.vendor_name_raw or 'unknown vendor'}"
+            ),
+            "body": (
+                f"Site receipt {detail.grn_no or detail.grn_id} is {detail.status} "
+                f"({detail.extraction_status or 'no'} extraction). "
+                f"{len(detail.lines)} line(s), {unmatched} still need a human PO match. "
+                "AI does not auto-post stock; confirm on /store/grn-triage."
+            ),
+            "bullets": [
+                f"Status: {detail.status}",
+                f"Vendor: {detail.vendor_name or detail.vendor_name_raw or '—'}",
+                f"Challan: {detail.challan_no or '—'}",
+                f"Extraction: {detail.extraction_status or '—'}",
+                f"Lines needing match: {unmatched}/{len(detail.lines)}",
             ],
         }
         return payload, fb

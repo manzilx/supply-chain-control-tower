@@ -11,11 +11,11 @@ import type { ChatReply, ChatTurn, ToolCallRecord } from "@/lib/types";
 
 const SUGGESTIONS = [
   "Show me this week's action plan",
+  "What's awaiting approval?",
+  "Which GRNs still need a PO match?",
   "Which vendors are most likely to cause delays?",
   "Draft an urgent follow-up for PO-24017",
   "Any savings or overruns this quarter?",
-  "Show long-lead items for Riverbank",
-  "What should we do about single-source vendors?",
 ];
 
 const SOURCE_LABEL: Record<ChatReply["source"], string> = {
@@ -280,6 +280,12 @@ function StructuredOutputs({ calls }: { calls: ToolCallRecord[] }) {
         if ((c.tool === "get_open_rfqs" || c.tool === "get_open_prs") && Array.isArray(preview) && preview.length > 0) {
           return <SourcingTable key={i} tool={c.tool} rows={preview} />;
         }
+        if (c.tool === "get_pending_approvals" && Array.isArray(preview) && preview.length > 0) {
+          return <ApprovalsTable key={i} rows={preview} />;
+        }
+        if (c.tool === "get_grn_queue" && Array.isArray(preview) && preview.length > 0) {
+          return <GrnQueueTable key={i} rows={preview} />;
+        }
         return null;
       })}
     </>
@@ -437,6 +443,40 @@ function SourcingTable({ tool, rows }: { tool: string; rows: any[] }) {
               { key: "status", label: "Status" },
             ]
       }
+      rows={rows}
+    />
+  );
+}
+
+function ApprovalsTable({ rows }: { rows: any[] }) {
+  return (
+    <StructTable
+      title={`Pending approvals — ${rows.length}`}
+      columns={[
+        { key: "kind", label: "Kind" },
+        { key: "title", label: "Title", cls: "text-ink" },
+        { key: "summary", label: "Summary" },
+        { key: "requested_by_name", label: "Raised by" },
+        { key: "required_role", label: "Needs" },
+        { key: "status", label: "Status" },
+      ]}
+      rows={rows}
+    />
+  );
+}
+
+function GrnQueueTable({ rows }: { rows: any[] }) {
+  return (
+    <StructTable
+      title={`GRN queue — ${rows.length}`}
+      columns={[
+        { key: "grn_no", label: "GRN", cls: "font-mono", render: (r) => r.grn_no || r.grn_id },
+        { key: "status", label: "Status" },
+        { key: "vendor_name", label: "Vendor", cls: "text-ink" },
+        { key: "challan_no", label: "Challan" },
+        { key: "line_count", label: "Lines" },
+        { key: "store_id", label: "Store" },
+      ]}
       rows={rows}
     />
   );

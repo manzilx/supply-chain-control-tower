@@ -392,7 +392,7 @@ def build_tbe(rfq_no: str) -> TBE:
 def auto_evaluate(rfq_no: str) -> List[TechnicalEvaluation]:
     """For each quote on this RFQ, generate technical scores per criterion.
 
-    Tries Grok first (source='grok'); falls back to deterministic heuristics
+    Tries DeepSeek first (source='deepseek'); falls back to deterministic heuristics
     (source='deterministic') that use vendor scorecard + quote notes as proxies.
     """
 

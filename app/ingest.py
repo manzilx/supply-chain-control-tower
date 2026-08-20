@@ -6,7 +6,7 @@ The pipeline:
   2. **Classify** — what entity does each sheet hold? Sheet-name hints first,
      then header-signature scoring (how many canonical fields match).
   3. **Map columns** — normalise headers, exact synonym lookup, then fuzzy
-     (difflib). Anything still unmapped is optionally sent to Grok in ONE
+     (difflib). Anything still unmapped is optionally sent to DeepSeek in ONE
      batched call; deterministic behaviour is unchanged when no key is set.
   4. **Validate + coerce** — per-entity row validation with row-numbered
      errors (same spirit as the BOM CSV uploader, generalised).
@@ -189,7 +189,7 @@ def _map_headers(entity: str, headers: List[str]) -> Tuple[Dict[str, int], List[
 
 
 def _llm_assist_mapping(entity: str, unmapped: List[str], mapping: Dict[str, int], headers: List[str]) -> Dict[str, int]:
-    """One batched Grok call to map leftover columns. No-op without a key."""
+    """One batched DeepSeek call to map leftover columns. No-op without a key."""
     from .llm import grok_json, is_enabled
     if not unmapped or not is_enabled():
         return mapping

@@ -745,7 +745,7 @@ def _deterministic_brief(result: SimulationResult) -> SimulationBrief:
 
 
 def build_simulation_brief(result: SimulationResult) -> SimulationBrief:
-    """Decision brief. Grok when enabled; always falls back to the headline."""
+    """Decision brief. DeepSeek when enabled; always falls back to the headline."""
     fallback = _deterministic_brief(result)
     from .llm import grok_json, is_enabled, llm_source
 

@@ -65,18 +65,19 @@ make stop && make demo    # scripts/demo.sh auto-sources .env before starting
 
 | Surface | What the LLM generates |
 |---|---|
-| `/agent` chat | Tool-calling responses (`source: "deepseek"`) |
+| `/agent` chat | Tool-calling responses (`source: "deepseek"`), including pending approvals and GRN queue |
 | `/overview` | Executive prose brief |
 | `/risks` | Per-risk mitigations (Mitigations button), per-risk Explain brief |
 | `/simulate` | 2-paragraph executive narrative on every simulation result |
-| `/weekly-plan` | Synthesized narrative over the rule-based plan |
+| `/weekly-plan` | Synthesized narrative over the rule-based plan (now includes approval + GRN P1s) |
 | `/vendors/[name]` | AI risk briefing with headline · body · watchlist |
 | `/projects/[id]` | Project Explain brief |
+| `/store/grn-triage` | Explain this GRN (never auto-matches or posts stock) |
 | Award rationale | Cited rationale on every PO awarded via the sourcing flow |
 | Follow-up emails | Tone-aware PO-specific email body |
-| BOM auto-fill (POST) | Category + supplier suggestions for sparse rows |
+| BOM auto-fill (POST + UI) | Category + supplier suggestions for sparse rows |
 | Spec request (POST) | Email to engineering for missing-spec BOM items |
-| `<ExplainButton />` | "What should I know about this" brief for PO/vendor/risk/project/RFQ/PR |
+| `<ExplainButton />` | "What should I know about this" brief for PO/vendor/risk/project/RFQ/PR/GRN |
 
 Configurable env vars (all live in `.env`):
 
@@ -162,7 +163,7 @@ Already documented above. Don't expose this to the internet — no TLS, no CORS 
 │   ├── main.py                    routes
 │   ├── schemas.py                 Pydantic models
 │   ├── agent.py                   AI command center (DeepSeek + deterministic)
-│   ├── agent_tools.py             15 tool definitions
+│   ├── agent_tools.py             20 tool definitions
 │   ├── ai_assist.py               executive brief (DeepSeek)
 │   ├── analytics.py               risk engine
 │   ├── planning.py                projects, BOM, procurement plan

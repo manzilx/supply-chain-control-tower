@@ -943,8 +943,8 @@ class RiskMitigationsReply(BaseModel):
 
 
 class ExplainRequest(BaseModel):
-    kind: Literal["po", "vendor", "risk", "project", "rfq", "pr"]
-    id: str  # po_number / vendor name / risk title / project_id / rfq_no / pr_no
+    kind: Literal["po", "vendor", "risk", "project", "rfq", "pr", "grn"]
+    id: str  # po_number / vendor name / risk title / project_id / rfq_no / pr_no / grn_id
 
 
 class ExplainReply(BaseModel):

@@ -355,6 +355,64 @@ def _summarize_propose_vendor(result: Any) -> str:
     return f"Vendor onboarding proposal for {name} processed."
 
 
+def _tool_pending_approvals(_: dict) -> Any:
+    """Tenant-scoped pending approvals. Buyers see only what they raised."""
+    tid = _tenant_id()
+    if not tid:
+        return []
+    from .approvals import list_approvals
+
+    pending = [a for a in list_approvals(tid, get_tool_user()) if a.status == "pending"]
+    # Drop frozen payloads — chat must not echo award/quote internals.
+    return [
+        {
+            "approval_id": a.approval_id,
+            "kind": a.kind,
+            "title": a.title,
+            "summary": a.summary,
+            "status": a.status,
+            "requested_by_name": a.requested_by_name,
+            "requested_at": a.requested_at,
+            "required_role": a.required_role,
+        }
+        for a in pending
+    ]
+
+
+def _summarize_approvals(items: List[Any]) -> str:
+    if not items:
+        return "No pending approvals."
+    titles = ", ".join(str(a.get("title") or a.get("approval_id")) for a in items[:5])
+    extra = "" if len(items) <= 5 else f" (+{len(items) - 5} more)"
+    return f"{len(items)} pending approval(s): {titles}{extra}."
+
+
+def _tool_grn_queue(_: dict) -> Any:
+    """Receipts waiting for a human PO match. Never auto-posts stock."""
+    tid = _tenant_id()
+    if not tid:
+        return []
+    import sqlite3
+
+    from .store.grn import list_grns
+
+    try:
+        return list_grns(tid, triage=True)
+    except sqlite3.OperationalError:
+        return []
+
+
+def _summarize_grn_queue(rows: List[Any]) -> str:
+    if not rows:
+        return "No GRNs waiting in triage."
+    by_status: dict[str, int] = {}
+    for row in rows:
+        status = row.status if hasattr(row, "status") else row.get("status", "unknown")
+        by_status[status] = by_status.get(status, 0) + 1
+    parts = ", ".join(f"{n} {s}" for s, n in sorted(by_status.items()))
+    return f"{len(rows)} GRN(s) need a human match ({parts}). AI does not auto-post stock."
+
+
 # --- Registry ---------------------------------------------------------------
 
 
@@ -530,6 +588,29 @@ TOOLS: Dict[str, Tool] = {
         persona="general",
         run=_tool_simulate,
         summarize=_summarize_simulation,
+    ),
+    "get_pending_approvals": Tool(
+        name="get_pending_approvals",
+        description=(
+            "List pending governance approvals for this tenant (PO awards, quote overrides, "
+            "vendor onboarding). Read-only — do not claim an approval was decided."
+        ),
+        input_schema={"type": "object", "properties": {}, "required": []},
+        persona="sourcing",
+        run=_tool_pending_approvals,
+        summarize=_summarize_approvals,
+    ),
+    "get_grn_queue": Tool(
+        name="get_grn_queue",
+        description=(
+            "List site-store goods receipts in triage/suggested/matched that still need a "
+            "human PO match. Photo extraction is off on the default text-only model. "
+            "Never say a GRN posted stock unless status is confirmed."
+        ),
+        input_schema={"type": "object", "properties": {}, "required": []},
+        persona="logistics",
+        run=_tool_grn_queue,
+        summarize=_summarize_grn_queue,
     ),
     "propose_vendor_onboarding": Tool(
         name="propose_vendor_onboarding",

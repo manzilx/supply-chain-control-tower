@@ -762,7 +762,7 @@ def build_timeline(po_no: str, tenant_id: Optional[str] = None) -> Optional[Sour
     return SourcingTimeline(po_no=po_no, events=events)
 
 
-# --- LLM helpers (Grok-driven prose) -----------------------------------------
+# --- LLM helpers (DeepSeek-driven prose) -------------------------------------
 
 
 def _llm_award_rationale(
@@ -772,7 +772,7 @@ def _llm_award_rationale(
     winner: Quote,
     comparison: Optional[QuoteComparison],
 ) -> Optional[str]:
-    """Generate a 100-150 word award rationale via Grok.
+    """Generate a 100-150 word award rationale via DeepSeek.
 
     Cites concrete diffs (price gap, lead-time gap, OTD score) and any risk
     flags on the winner. Returns None on failure so caller can fall back to

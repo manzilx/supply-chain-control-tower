@@ -435,7 +435,7 @@ def draft_followup_email(
 
 
 def _llm_followup_body(*, item: ExpediteItem, tone: str, docs: list, extra_notes: Optional[str]) -> Optional[str]:
-    """Compose a follow-up email body via Grok. Returns None on any failure.
+    """Compose a follow-up email body via DeepSeek. Returns None on any failure.
 
     Captures: PO context, supplier, line description, predicted slip days,
     risk signals, requested documents, tone (standard/firm/urgent), and any

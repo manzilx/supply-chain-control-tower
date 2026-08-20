@@ -1263,7 +1263,7 @@ export type RiskMitigationsReply = {
   generated_at: string;
 };
 
-export type ExplainKind = "po" | "vendor" | "risk" | "project" | "rfq" | "pr";
+export type ExplainKind = "po" | "vendor" | "risk" | "project" | "rfq" | "pr" | "grn";
 
 export type ExplainReply = {
   kind: string;

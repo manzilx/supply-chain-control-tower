@@ -1489,11 +1489,11 @@ async def api_spec_request(
 
 
 @_ttl_cache(ttl_seconds=600.0)
-def _cached_explain(kind: str, entity_id: str) -> ExplainReply:
+def _cached_explain(kind: str, entity_id: str, tenant_id: str) -> ExplainReply:
     """Explain briefs are stable for minutes and each one may be an LLM call —
-    cache 10 min per (kind, id). Write paths bust this via invalidate_all()."""
+    cache 10 min per (tenant, kind, id). Write paths bust this via invalidate_all()."""
     from .ai_actions import explain_entity
-    return explain_entity(ExplainRequest(kind=kind, id=entity_id))  # type: ignore[arg-type]
+    return explain_entity(ExplainRequest(kind=kind, id=entity_id), tenant_id=tenant_id)  # type: ignore[arg-type]
 
 
 @app.post("/api/explain", response_model=ExplainReply)
@@ -1503,10 +1503,10 @@ async def api_explain(
 ) -> ExplainReply:
     """Generate a 'what should I know' brief for any kind of entity.
 
-    Supported kinds: po, vendor, risk, project, rfq, pr.
+    Supported kinds: po, vendor, risk, project, rfq, pr, grn.
     """
 
-    return _cached_explain(request.kind, request.id)
+    return _cached_explain(request.kind, request.id, user.tenant_id)
 
 
 # --- SAP CPI Integration (Phase 0 scaffold) ---------------------------------

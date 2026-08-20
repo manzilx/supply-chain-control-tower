@@ -127,6 +127,16 @@ def _plan_tools(message: str, persona: AgentPersona) -> List[Tuple[str, dict]]:
         plan.append(("propose_vendor_onboarding", _proposed_vendor_from_message(message)))
         return plan
 
+    # Site store — keyword-first so "GRN triage" is not swallowed by logistics/general.
+    if any(k in msg for k in ["grn", "challan", "goods receipt", "site store", "unmatched receipt"]):
+        plan.append(("get_grn_queue", {}))
+        return plan
+
+    # Governance queue — copilot already asks "What's awaiting approval?"
+    if any(k in msg for k in ["approval", "awaiting approve", "to approve", "pending approve"]):
+        plan.append(("get_pending_approvals", {}))
+        return plan
+
     # Reporting
     if persona == "reporting" or any(k in msg for k in ["weekly plan", "action plan", "this week", "briefing"]):
         plan.append(("build_weekly_plan", {}))
@@ -208,6 +218,11 @@ def _format_reply(message: str, persona: AgentPersona, calls: List[ToolCallRecor
 
     # Drill-down hints
     hints: List[str] = []
+    tool_names = {c.tool for c in calls}
+    if "get_grn_queue" in tool_names:
+        hints.append("Open `/store/grn-triage` to match receipts to POs. AI never auto-posts stock.")
+    if "get_pending_approvals" in tool_names:
+        hints.append("Open `/approvals` to decide. The agent cannot approve or reject.")
     if persona == "expediting":
         hints.append("Open `/expediting` for the full queue and to draft emails in-line.")
     elif persona == "logistics":
@@ -262,16 +277,22 @@ def dispatch_deterministic(message: str) -> ChatReply:
     )
 
 
-# --- Grok path (xAI, OpenAI-compatible chat-completions) --------------------
+# --- DeepSeek tool-calling path (OpenAI-compatible chat-completions) --------
 
 
 _SYSTEM_PROMPT = (
     "You are the AI Command Center for an engineering / EPC supply chain control tower. "
     "You have tool access to procurement, vendor intelligence, expediting, logistics, "
-    "commercial rollups, procurement plans, and what-if simulations. "
+    "commercial rollups, procurement plans, what-if simulations, pending approvals, "
+    "and the site-store GRN queue. "
     "Use tools to answer factually — don't guess figures. "
     "When you return a recommendation, include: why, expected impact, confidence, and which data you used. "
     "Be concise, operational, and specific. If the user asks for an email, draft it using the tool.\n\n"
+    "HARD RULES:\n"
+    "- Approvals: use get_pending_approvals. Never claim you approved or rejected anything.\n"
+    "- GRNs: use get_grn_queue. Never claim a receipt posted stock unless the tool shows "
+    "status=confirmed. The PO matcher is deterministic; you must not invent a PO match. "
+    "Photo extraction is off on the default text-only model, so unmatched/skipped extraction is expected.\n\n"
     "FORMATTING RULES (the UI renders GitHub-flavoured markdown):\n"
     "- Whenever you list more than 2 items with multiple fields (actions, POs, vendors, risks, "
     "  shipments, quotes, etc.), render them as a GFM markdown table — NOT a numbered list with "

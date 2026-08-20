@@ -378,7 +378,7 @@ def list_category_concentration(tenant_id: Optional[str] = None) -> List[Categor
 def build_vendor_briefing(name: str, tenant_id: Optional[str] = None):
     """Generate a risk briefing for a single vendor.
 
-    Tries Grok (source='grok'); falls back to deterministic summary
+    Tries DeepSeek (source='deepseek'); falls back to deterministic summary
     (source='deterministic'). Returns None if the vendor isn't known.
     """
 

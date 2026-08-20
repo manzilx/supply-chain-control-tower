@@ -339,7 +339,7 @@ def analyze_supply_chain(request: AgentRequest, ai_response: str) -> AgentRespon
 def generate_risk_mitigations(risk: RiskRecord):
     """Return 3 concrete mitigations for the given risk record.
 
-    Tries Grok; falls back to type-keyed templates. Always returns a
+    Tries DeepSeek; falls back to type-keyed templates. Always returns a
     RiskMitigationsReply with `source` indicating which path produced it.
     """
 
