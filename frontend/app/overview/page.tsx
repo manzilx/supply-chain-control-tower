@@ -24,6 +24,14 @@ function toneFor(metric: WatchMetric): "neutral" | "good" | "warn" | "bad" {
   return "neutral";
 }
 
+// Split a display string like "91/100", "$88,850" or "12" into the leading
+// unit, the first number, and whatever follows it.
+function parseMetricValue(raw: string): { prefix: string; value: number; suffix: string } {
+  const m = raw.match(/^([^0-9\-]*)(-?[\d,]*\.?\d+)(.*)$/);
+  if (!m) return { prefix: "", value: 0, suffix: raw };
+  return { prefix: m[1], value: Number(m[2].replace(/,/g, "")) || 0, suffix: m[3] };
+}
+
 export default function OverviewPage() {
   const { tenant } = useAuth();
   const { analysis } = useStore();
@@ -61,15 +69,15 @@ export default function OverviewPage() {
               {metrics.length > 0 ? (
                 <div className="grid grid-cols-2 gap-3 h-full">
                   {metrics.slice(0, 4).map((m, i) => {
-                    const numeric = Number(String(m.value).replace(/[^0-9.\-]/g, "")) || 0;
-                    const suffix = String(m.value).replace(/[0-9.\-,]/g, "").trim();
+                    const { prefix, value: numeric, suffix } = parseMetricValue(String(m.value));
                     const spark = Array.from({ length: 8 }, (_, k) => numeric * (0.7 + Math.sin(k + i) * 0.15 + k * 0.04));
                     return (
                       <AnimatedKpiTile
                         key={m.label}
                         label={m.label}
-                        value={numeric || 0}
-                        suffix={suffix ? " " + suffix : ""}
+                        value={numeric}
+                        prefix={prefix}
+                        suffix={suffix}
                         tone={toneFor(m)}
                         hint={m.direction === "up" ? "trending up" : m.direction === "down" ? "trending down" : "steady"}
                         delay={0.15 + i * 0.05}

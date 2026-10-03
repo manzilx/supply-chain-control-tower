@@ -22,30 +22,31 @@ frontend http://127.0.0.1:3001/
 
 | Command | Does |
 |---|---|
-| `make demo` | Full boot: kill stale procs → start backend with hydro fixture → seed PR→RFQ→Quote→Award→PO → start frontend |
+| `make demo` | Full boot: kill stale procs → reset `.data/` → start backend with hydro fixture → seed PR→RFQ→Quote→Award→PO → start frontend |
 | `make backend-only` | Backend + seed, skip frontend (`./scripts/demo.sh --no-fe`) |
 | `make fe-only` | Frontend dev server only (assumes backend already up) |
-| `make seed` | Re-run the sourcing workflow seeder against a live backend |
+| `make seed` | Re-run the sourcing workflow seeder against a live backend (adds a second copy — `make demo` for a clean slate) |
 | `make stop` | Kill backend + frontend cleanly |
 | `make status` | Show which services are up + their PIDs |
 | `make logs` | Tail all three log files (Ctrl-C to exit) |
 
-Lower-level: `./scripts/demo.sh [stop|status|logs|seed|--no-seed|--no-fe]`.
+Lower-level: `./scripts/demo.sh [stop|status|logs|seed|--no-seed|--no-fe|--keep-state]`.
 
 Logs land in `.logs/` and PIDs in `.pids/` (both gitignored).
 
 ## What gets seeded
 
-`make demo` lands the app in a fully-populated state:
+`make demo` resets `.data/` and lands the app in the same fully-populated state on every boot (use `./scripts/demo.sh --keep-state` to resume the last snapshot instead). Three tenants, four projects each — pick any persona on `/login`, no password:
 
-- **3 projects**: Mahadev Hydro 220 MW (2×110 Francis), Riverbank 2×660 MW thermal, North Sea Offshore Substation
-- **70 BOM items** on the hydro project across 15 categories (HM, turbine, generator, transformer, GIS, switchgear, cables, C&I, cooling water, lubrication, cranes, fire, HVAC, civil)
-- **35 suppliers** with realistic OTD% / quality PPM / spend / single-source flags
-- **28 inventory SKUs** (capital spares thin, consumables safe-cover)
-- **15 PRs · 15 RFQs (3 quotes each) · 15 awards · 15 sourcing POs · 33 shipments** — full sourcing lifecycle
-- **6 incidents** spanning critical / high / medium / low
-- **21 risks** across 5 types (supplier_reliability, inventory_gap, incident, po_slip, single_source) on `/risks`
-- **$22.7 M** in committed PO value across two projects on `/commercial`
+| Tenant | Projects | BOM lines | Sourced POs | Awarded | Savings |
+|---|---|---|---|---|---|
+| **Northwind Heavy Engineering** (richest — start here) | Mahadev Hydro 220 MW, Polaris Steel Mill, Granite Ridge Cement, Kavi Hydro overhaul | 89 | 8 | $18.4 M | $466 K (rebar + transformer overruns flagged) |
+| **Helios Offshore** | North Sea Offshore Substation, Dogger Bank Wind 480 MW, Hawthorn FPSO, Valhall Bravo tie-in | 23 | 6 | $47.6 M | $1.1 M (compressor + J-tube overruns flagged) |
+| **Arcforge Engineering** | Riverbank 2×660 MW, Tanjore CCGT, Sundarpur 765 kV, Meridian CCGT | 27 | 7 | $4.3 M | $140 K |
+
+Every tenant also gets ~38 scored vendors, a 23–25 line expediting queue, 7–8 live risk alerts, shipments in flight on `/logistics`, and the full PR → RFQ → 3 quotes → Award → PO trail on `/sourcing`.
+
+Walkthrough for presenters: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
 
 ## AI
 
@@ -185,7 +186,7 @@ Already documented above. Don't expose this to the internet — no TLS, no CORS 
 
 ## Architecture notes
 
-- All persistence is **in-memory** — every cold boot reseeds from `fixtures/`. Project + BOM persist via the planning store's import-time `_seed()`; sourcing workflow (PRs/RFQs/awards/POs) is HTTP-seeded post-startup and resets when the backend restarts.
+- All persistence is **in-memory**, snapshotted to `.data/` — `make demo` wipes it and reseeds from `fixtures/`. Project + BOM persist via the planning store's import-time `_seed()`; sourcing workflow (PRs/RFQs/awards/POs) is HTTP-seeded post-startup and resets when the backend restarts.
 - Backend port `8010`, frontend port `3001` (memory note: 3000 is often taken by the user's other project).
 - LLM calls go to DeepSeek's OpenAI-compatible chat-completions endpoint; tool-calling shape mirrors OpenAI (`tools` with `type: function`, results returned as `role: tool`).
 

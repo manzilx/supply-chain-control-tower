@@ -4,6 +4,7 @@
 #   ./scripts/demo.sh             # full boot: clean → backend → seed → frontend
 #   ./scripts/demo.sh --no-seed   # skip sourcing-workflow seed
 #   ./scripts/demo.sh --no-fe     # backend + seed only (skip frontend)
+#   ./scripts/demo.sh --keep-state  # resume the last snapshot in .data/ (no reset, no seed)
 #   ./scripts/demo.sh stop        # stop everything
 #   ./scripts/demo.sh status      # show what's running
 #   ./scripts/demo.sh logs        # tail all logs
@@ -46,6 +47,17 @@ step() { echo "$(c_grn '==>') $*"; }
 warn() { echo "$(c_ylw 'WARN') $*" >&2; }
 fail() { echo "$(c_red 'FAIL') $*" >&2; exit 1; }
 
+# Kill a process and all of its descendants. `npm run dev` forks
+# `next dev` → `next-server`; killing only the npm pid orphans the server,
+# which keeps the port and serves a stale .next on the next boot.
+kill_tree() {
+  local pid=$1 sig=${2:-TERM} child
+  for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+    kill_tree "$child" "$sig"
+  done
+  kill -"$sig" "$pid" 2>/dev/null || true
+}
+
 kill_port() {
   local port=$1
   local pids
@@ -77,12 +89,34 @@ wait_for_url() {
 
 cleanup() {
   step "cleaning up stale processes"
+  stop_pid backend
+  stop_pid frontend
   kill_port "$BACKEND_PORT"
   kill_port "$FRONTEND_PORT"
 }
 
+reset_state() {
+  # The backend restores its last snapshot from .data/ on boot. Seeding on top
+  # of a restored snapshot duplicates every PR/RFQ/PO, so a full boot starts
+  # from a clean slate.
+  if [[ -d "$ROOT/.data" ]]; then
+    step "resetting demo state (.data/)"
+    rm -rf "$ROOT/.data"
+  fi
+}
+
+# A stale server left on the port would answer our readiness check while the
+# fresh one dies with EADDRINUSE, so refuse to start over it.
+ensure_port_free() {
+  local port=$1
+  if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$port/"; then
+    fail "port $port is still held by an old process — stop it (e.g. pkill -f next-server / serve_with_hydro) and retry"
+  fi
+}
+
 start_backend() {
   step "starting backend on :$BACKEND_PORT"
+  ensure_port_free "$BACKEND_PORT"
   [[ -x "$VENV_PY" ]] || fail "venv python not found at $VENV_PY — run: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
   (
     cd "$ROOT"
@@ -105,11 +139,12 @@ seed_sourcing() {
     SEED_API_BASE="http://127.0.0.1:$BACKEND_PORT" \
       "$VENV_PY" -m fixtures.seed_sourcing > "$LOG_DIR/seed.log" 2>&1
   )
-  tail -7 "$LOG_DIR/seed.log" | sed 's/^/  /'
+  sed -n '/=== final tally/,$p' "$LOG_DIR/seed.log" | sed 's/^/  /'
 }
 
 start_frontend() {
   step "starting frontend on :$FRONTEND_PORT"
+  ensure_port_free "$FRONTEND_PORT"
   [[ -d "$ROOT/frontend/node_modules" ]] || (
     step "installing frontend dependencies (first run)"
     cd "$ROOT/frontend" && npm install
@@ -156,7 +191,9 @@ stop_pid() {
     pid=$(cat "$pidfile")
     if kill -0 "$pid" 2>/dev/null; then
       echo "  stopping $name (pid $pid)"
-      kill "$pid" 2>/dev/null || true
+      kill_tree "$pid"
+      sleep 1
+      kill -0 "$pid" 2>/dev/null && kill_tree "$pid" KILL
     fi
     rm -f "$pidfile"
   fi
@@ -177,14 +214,16 @@ stop_all() {
 CMD=""
 NO_SEED=0
 NO_FE=0
+KEEP_STATE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     stop|status|logs|seed) CMD="$1" ;;
     --no-seed)             NO_SEED=1 ;;
     --no-fe|--no-frontend) NO_FE=1 ;;
+    --keep-state)          KEEP_STATE=1; NO_SEED=1 ;;
     -h|--help)
-      sed -n '2,17p' "$0" | sed 's/^# //; s/^#//'
+      sed -n '2,18p' "$0" | sed 's/^# //; s/^#//'
       exit 0
       ;;
     *) fail "unknown arg: $1" ;;
@@ -199,6 +238,7 @@ case "$CMD" in
   seed)   seed_sourcing ;;
   "")
     cleanup
+    [[ "$KEEP_STATE" -eq 0 ]] && reset_state
     start_backend
     [[ "$NO_SEED" -eq 0 ]] && seed_sourcing
     [[ "$NO_FE"   -eq 0 ]] && start_frontend

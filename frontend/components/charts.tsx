@@ -306,7 +306,7 @@ export function HBar({
       <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, left: 4, bottom: 4 }}>
         <CartesianGrid stroke={CHART_PALETTE.grid} horizontal={false} />
         <XAxis type="number" tick={{ fill: CHART_PALETTE.text, fontSize: 11 }} stroke={CHART_PALETTE.grid} tickFormatter={valueFormat} />
-        <YAxis dataKey="name" type="category" tick={{ fill: CHART_PALETTE.textInk, fontSize: 12 }} width={140} stroke={CHART_PALETTE.grid} />
+        <YAxis dataKey="name" type="category" interval={0} tick={{ fill: CHART_PALETTE.textInk, fontSize: 12 }} width={140} stroke={CHART_PALETTE.grid} />
         <Tooltip content={<TooltipBox />} cursor={{ fill: "rgba(132,165,191,0.06)" }} />
         <Bar dataKey="value" radius={[0, 4, 4, 0]} animationDuration={900}>
           {data.map((d, i) => (

@@ -236,15 +236,15 @@ const MD_COMPONENTS = {
   ul: (props: any) => <ul className="list-disc pl-5 space-y-0.5 my-1" {...props} />,
   ol: (props: any) => <ol className="list-decimal pl-5 space-y-0.5 my-1" {...props} />,
   li: (props: any) => <li className="text-ink" {...props} />,
-  // Inline code + code blocks
-  code: ({ inline, ...props }: any) =>
-    inline ? (
-      <code className="font-mono text-[0.78em] bg-white/10 rounded px-1 py-0.5" {...props} />
-    ) : (
-      <pre className="my-2 text-[0.72rem] bg-black/40 rounded p-2 overflow-x-auto">
-        <code className="font-mono" {...props} />
-      </pre>
-    ),
+  // Inline code + code blocks. react-markdown v10 no longer passes `inline`,
+  // so blocks are styled on <pre> and <code> stays inline by default.
+  pre: (props: any) => (
+    <pre
+      className="my-2 text-[0.72rem] bg-black/40 rounded p-2 overflow-x-auto [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-[1em]"
+      {...props}
+    />
+  ),
+  code: (props: any) => <code className="font-mono text-[0.78em] bg-white/10 rounded px-1 py-0.5" {...props} />,
   p: (props: any) => <p className="my-1.5" {...props} />,
   strong: (props: any) => <strong className="text-ink font-semibold" {...props} />,
   em: (props: any) => <em className="text-muted" {...props} />,

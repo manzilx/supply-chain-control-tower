@@ -27,6 +27,10 @@ def _patched_build(tenant_id: str = "arcforge"):
     req = _orig_build(tenant_id)
     if tenant_id not in _hydro_extended:
         _hydro_extended.add(tenant_id)
+        # Hydro suppliers win over base suppliers of the same name (e.g.
+        # Andritz Hydro) — otherwise /vendors lists the vendor twice.
+        hydro_names = {s.name.strip().lower() for s in _demo.suppliers}
+        req.suppliers[:] = [s for s in req.suppliers if s.name.strip().lower() not in hydro_names]
         req.suppliers.extend(_demo.suppliers)
         req.inventory.extend(_demo.inventory)
         req.purchase_orders.extend(_demo.purchase_orders)

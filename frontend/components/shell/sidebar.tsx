@@ -53,7 +53,7 @@ export function Sidebar() {
       </nav>
 
       <div className="px-5 py-4 border-t border-line text-xs text-muted">
-        v0.1 · M1 shell
+        v0.1 · M1–M7
       </div>
     </aside>
   );
