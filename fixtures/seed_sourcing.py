@@ -14,7 +14,7 @@ workflow having been completed: /sourcing, /awards, /sourcing-pos,
 /commercial, the post-award slice of /logistics, and the AI weekly plan.
 
 Also closes out the pre-seeded demo RFQ (RFQ-00001, quotes received but never
-awarded — RFQ-00002 is attempted too for older snapshots that still carry one),
+awarded),
 and posts shipment events on a handful of brand-new POs so /logistics has more
 than just the legacy scenario rows.
 
@@ -30,6 +30,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import date, timedelta
 from typing import Any, Optional
 
 
@@ -41,6 +42,9 @@ API = os.getenv("SEED_API_BASE", "http://127.0.0.1:8010")
 TENANT_FOR_PROJECT = {
     "PRJ-RB-660": "arcforge",
     "HYD-MAHADEV-220": "northwind",
+    "PRJ-NS-OSS": "helios",
+    "PRJ-HE-WIND": "helios",
+    "PRJ-HE-FPSO": "helios",
 }
 
 _tokens: dict[str, str] = {}
@@ -68,16 +72,17 @@ def _req(method: str, path: str, body: Optional[dict] = None, token: Optional[st
         return None
 
 
-def _login(tenant_id: str) -> str:
-    """JWT for the tenant's procurement head, cached per tenant."""
-    token = _tokens.get(tenant_id)
+def _login(tenant_id: str, role: str = "head") -> str:
+    """JWT for a tenant persona (procurement head by default), cached."""
+    user_id = f"{tenant_id}-{role}-01"
+    token = _tokens.get(user_id)
     if token:
         return token
-    reply = _req("POST", "/api/auth/login", {"user_id": f"{tenant_id}-head-01"})
+    reply = _req("POST", "/api/auth/login", {"user_id": user_id})
     if not reply or not reply.get("token"):
-        print(f"login failed for tenant {tenant_id}")
+        print(f"login failed for {user_id}")
         sys.exit(1)
-    _tokens[tenant_id] = reply["token"]
+    _tokens[user_id] = reply["token"]
     return reply["token"]
 
 
@@ -95,8 +100,18 @@ def walk_workflow(
     quotes: list[dict],
     award_pref: Optional[str] = None,
     note_prefix: str = "",
+    price_factor: float = 1.0,
+    need_in_days: Optional[int] = None,
 ) -> Optional[str]:
-    """One full PR→RFQ→Quote→Award→PO walk. Returns the PO number on success."""
+    """One full PR→RFQ→Quote→Award→PO walk. Returns the PO number on success.
+
+    `price_factor` scales every quote uniformly (vendor ranking unchanged) so the
+    market lands under or over the BOM estimate — which is what /commercial
+    reports as savings or overrun.
+
+    `need_in_days` overrides the BOM need date for lines whose fixture date has
+    already passed — otherwise a PR raised today shows up months overdue.
+    """
 
     label = f"{code:18} ({project_id})"
     print(f"  {label}")
@@ -109,6 +124,7 @@ def walk_workflow(
         "code": code,
         "description": description,
         "quantity": quantity,
+        **({"need_by": (date.today() + timedelta(days=need_in_days)).isoformat()} if need_in_days else {}),
     }, token=token)
     if not pr:
         print(f"    pr failed for {code}")
@@ -135,7 +151,7 @@ def walk_workflow(
     for q in quotes:
         body = {
             "vendor": q["vendor"],
-            "unit_price_usd": q["unit_price"],
+            "unit_price_usd": round(q["unit_price"] * price_factor, 2),
             "lead_time_days": q["lead_days"],
             "incoterm": q.get("incoterm", "CIP"),
             "validity_days": q.get("validity", 30),
@@ -207,6 +223,7 @@ WORKFLOWS = [
         project_id="PRJ-RB-660", bom_item_id="RB-001", code="BFP-660-A",
         description="Boiler Feed Pump 660MW set A",
         quantity=2,
+        price_factor=0.94,
         award="Helios Cast & Forge",
         quotes=[
             {"vendor": "Helios Cast & Forge", "unit_price": 920000, "lead_days": 240, "notes": "Standard scope, includes FAT at vendor works"},
@@ -218,6 +235,7 @@ WORKFLOWS = [
         project_id="PRJ-RB-660", bom_item_id="RB-003", code="PLC-S7-IO48",
         description="PLC I/O module 48 point",
         quantity=16,
+        price_factor=0.91,
         award="BluePeak Controls",
         quotes=[
             {"vendor": "BluePeak Controls",  "unit_price": 2250, "lead_days": 55, "notes": "Stock available, includes test certificates"},
@@ -229,6 +247,7 @@ WORKFLOWS = [
         project_id="PRJ-RB-660", bom_item_id="RB-004", code="TXF-110-40",
         description="Auxiliary transformer 110/11 kV 40 MVA",
         quantity=1,
+        price_factor=1.06,
         award="CG Power",
         quotes=[
             {"vendor": "CG Power",        "unit_price": 480000, "lead_days": 180, "notes": "Type-tested, ICT compliance certified"},
@@ -240,6 +259,7 @@ WORKFLOWS = [
         project_id="PRJ-RB-660", bom_item_id="RB-006", code="STRUCT-S355",
         description="Structural steel S355 fabrication",
         quantity=220,
+        price_factor=0.95,
         award="JSW Steel",
         quotes=[
             {"vendor": "JSW Steel",  "unit_price": 1850, "lead_days": 60, "notes": "Mill rolled + fabricated to ASTM A572 Gr 50"},
@@ -251,6 +271,7 @@ WORKFLOWS = [
         project_id="PRJ-RB-660", bom_item_id="RB-007", code="COND-TUBE-INC",
         description="Condenser tubes Inconel 625",
         quantity=4200,
+        price_factor=0.97,
         award="Sandvik Materials Tech",
         quotes=[
             {"vendor": "Sandvik Materials Tech", "unit_price": 48,  "lead_days": 150, "notes": "EN 10216-5 compliant, FX-locked SEK"},
@@ -262,6 +283,7 @@ WORKFLOWS = [
         project_id="PRJ-RB-660", bom_item_id="RB-008", code="COOLING-TWR-MOD",
         description="Induced draft cooling tower module",
         quantity=4,
+        price_factor=1.04,
         award="GEI Industrial Systems",
         quotes=[
             {"vendor": "GEI Industrial Systems",     "unit_price": 310000, "lead_days": 210, "notes": "FRP construction, 28% drift eliminator"},
@@ -275,6 +297,8 @@ WORKFLOWS = [
         project_id="HYD-MAHADEV-220", bom_item_id="HYD-HM-002", code="HM-INTGT-01",
         description="Intake gate vertical lift 6.5x7.5 m",
         quantity=2,
+        need_in_days=330,
+        price_factor=0.93,
         award="ISGEC Heavy Engineering",
         quotes=[
             {"vendor": "ISGEC Heavy Engineering", "unit_price": 420000, "lead_days": 365, "notes": "Standard SS304 sealing, hydraulic interface"},
@@ -286,6 +310,7 @@ WORKFLOWS = [
         project_id="HYD-MAHADEV-220", bom_item_id="HYD-CR-001", code="CR-EOT-PWR",
         description="Powerhouse EOT crane 200/30 t double girder",
         quantity=1,
+        price_factor=0.96,
         award="Konecranes",
         quotes=[
             {"vendor": "Konecranes",  "unit_price": 1280000, "lead_days": 300, "notes": "VFD, anti-sway, redundant brakes"},
@@ -297,6 +322,8 @@ WORKFLOWS = [
         project_id="HYD-MAHADEV-220", bom_item_id="HYD-CV-003", code="CV-REBAR-550",
         description="TMT rebar Fe 550 8 to 32 mm",
         quantity=6500,
+        need_in_days=75,
+        price_factor=1.08,
         award="Tata Steel",
         quotes=[
             {"vendor": "Tata Steel", "unit_price": 720, "lead_days": 60, "notes": "Tata Tiscon Fe 550, mill cert"},
@@ -308,6 +335,8 @@ WORKFLOWS = [
         project_id="HYD-MAHADEV-220", bom_item_id="HYD-CV-001", code="CV-CEM-OPC",
         description="OPC 53 grade cement bulk",
         quantity=28000,
+        need_in_days=45,
+        price_factor=0.97,
         award="UltraTech Cement",
         quotes=[
             {"vendor": "UltraTech Cement", "unit_price": 98, "lead_days": 30, "notes": "Bulk delivery, dedicated rake"},
@@ -319,6 +348,7 @@ WORKFLOWS = [
         project_id="HYD-MAHADEV-220", bom_item_id="HYD-CB-002", code="CB-13-MV",
         description="13.8 kV power cable 3C 240 sq.mm",
         quantity=4500,
+        price_factor=0.92,
         award="Polycab",
         quotes=[
             {"vendor": "Polycab",         "unit_price": 72, "lead_days": 150, "notes": "FRLS, type-tested at CPRI"},
@@ -330,6 +360,7 @@ WORKFLOWS = [
         project_id="HYD-MAHADEV-220", bom_item_id="HYD-CW-001", code="CW-PUMP-VT",
         description="CW pump vertical turbine 5 m3/s",
         quantity=4,
+        price_factor=0.95,
         award="Kirloskar Brothers",
         quotes=[
             {"vendor": "Kirloskar Brothers", "unit_price": 165000, "lead_days": 240, "notes": "Domestic OEM, includes startup spares"},
@@ -341,6 +372,7 @@ WORKFLOWS = [
         project_id="HYD-MAHADEV-220", bom_item_id="HYD-GIS-001", code="GIS-220-BAY",
         description="220 kV GIS bay (CB+ISO+ES+CT+VT)",
         quantity=4,
+        price_factor=0.94,
         award="Hitachi Energy",
         quotes=[
             {"vendor": "Hitachi Energy",  "unit_price": 895000, "lead_days": 360, "notes": "ELK-04 series, type-tested"},
@@ -352,6 +384,7 @@ WORKFLOWS = [
         project_id="HYD-MAHADEV-220", bom_item_id="HYD-TR-001", code="TR-GT-130MVA",
         description="Generator transformer 130 MVA 13.8/220 kV",
         quantity=2,
+        price_factor=1.03,
         award="BHEL Bhopal",
         quotes=[
             {"vendor": "BHEL Bhopal",      "unit_price": 2150000, "lead_days": 450, "notes": "OLTC, ICT-compliant, MAKE in India compliant"},
@@ -359,11 +392,73 @@ WORKFLOWS = [
             {"vendor": "Hitachi Energy",   "unit_price": 2380000, "lead_days": 405, "notes": "Premium offering, FX exposure"},
         ],
     ),
+
+    # ---- Helios Offshore ----
+    dict(
+        project_id="PRJ-NS-OSS", bom_item_id="NS-002", code="CBL-66-SUBSEA",
+        description="Subsea export cable 66kV XLPE",
+        quantity=28,
+        quotes=[
+            {"vendor": "NorthCable Subsea", "unit_price": 198000, "lead_days": 330, "notes": "Includes jointing and load-out at Bergen"},
+            {"vendor": "NKT",               "unit_price": 205000, "lead_days": 300, "notes": "Type-tested to IEC 63026, Karlskrona works"},
+            {"vendor": "Prysmian",          "unit_price": 221000, "lead_days": 280, "notes": "Fastest slot; premium for Q2 factory capacity"},
+        ],
+    ),
+    dict(
+        project_id="PRJ-NS-OSS", bom_item_id="NS-004", code="J-TUBE-SS",
+        description="J-tube stainless 316L",
+        quantity=6,
+        quotes=[
+            {"vendor": "Aberdeen Steel Fab",     "unit_price": 41500, "lead_days": 120, "notes": "Fabricated and NDT'd in Aberdeen"},
+            {"vendor": "Sandvik Materials Tech", "unit_price": 44000, "lead_days": 100, "notes": "Seamless 316L, mill-direct"},
+            {"vendor": "Tenaris",                "unit_price": 39800, "lead_days": 150, "notes": "Lowest price; nickel surcharge not locked"},
+        ],
+    ),
+    dict(
+        project_id="PRJ-HE-WIND", bom_item_id="PRJ-HE-WIND-003", code="ARRAY-66KV",
+        description="66 kV inter-array cable",
+        quantity=85,
+        quotes=[
+            {"vendor": "NorthCable Subsea", "unit_price": 226000, "lead_days": 240, "notes": "Earliest delivery, carousel load-out included"},
+            {"vendor": "NKT",               "unit_price": 212000, "lead_days": 270, "notes": "Framework pricing from Dogger Bank phase A"},
+            {"vendor": "Prysmian",          "unit_price": 209000, "lead_days": 300, "notes": "Lowest price; Arco Felice factory slot"},
+        ],
+    ),
+    dict(
+        project_id="PRJ-HE-WIND", bom_item_id="PRJ-HE-WIND-004", code="TP-COATING",
+        description="Transition piece marine coating",
+        quantity=32,
+        quotes=[
+            {"vendor": "Coastline Marine Coatings", "unit_price": 61500, "lead_days": 45, "notes": "NORSOK M-501 system 7, applied at yard"},
+            {"vendor": "Jotun",                     "unit_price": 63800, "lead_days": 40, "notes": "Includes coating inspector on site"},
+            {"vendor": "Hempel",                    "unit_price": 59900, "lead_days": 60, "notes": "Lowest price; longer cure schedule"},
+        ],
+    ),
+    dict(
+        project_id="PRJ-HE-FPSO", bom_item_id="PRJ-HE-FPSO-002", code="GASCOMP-CENT",
+        description="Centrifugal gas compressor",
+        quantity=3,
+        quotes=[
+            {"vendor": "Siemens Energy",       "unit_price": 4350000, "lead_days": 420, "notes": "Dry gas seals, string test at Duisburg"},
+            {"vendor": "Baker Hughes",         "unit_price": 4280000, "lead_days": 450, "notes": "Lowest price; longer string-test queue"},
+            {"vendor": "MAN Energy Solutions", "unit_price": 4460000, "lead_days": 400, "notes": "Fastest delivery, premium for slot"},
+        ],
+    ),
+    dict(
+        project_id="PRJ-HE-FPSO", bom_item_id="PRJ-HE-FPSO-005", code="RISER-FLEX",
+        description="Flexible production riser",
+        quantity=6,
+        quotes=[
+            {"vendor": "NorthCable Subsea", "unit_price": 1390000, "lead_days": 300, "notes": "API 17J, includes bend stiffeners"},
+            {"vendor": "TechnipFMC",        "unit_price": 1420000, "lead_days": 270, "notes": "Qualified for 25-year sour service"},
+            {"vendor": "NOV Flexibles",     "unit_price": 1365000, "lead_days": 330, "notes": "Lowest price; Kalundborg capacity tight"},
+        ],
+    ),
 ]
 
 
 # ---------------------------------------------------------------------------
-# Existing-RFQ closeout (RFQ-00001, RFQ-00002)
+# Existing-RFQ closeout (RFQ-00001)
 # ---------------------------------------------------------------------------
 
 
@@ -375,7 +470,7 @@ def close_out_existing_rfqs() -> list[tuple[str, str]]:
     tenant_id = "arcforge"
     token = _login(tenant_id)
     pos: list[tuple[str, str]] = []
-    for rfq_no, prefer in [("RFQ-00001", None), ("RFQ-00002", None)]:
+    for rfq_no, prefer in [("RFQ-00001", None)]:
         comp = _req("GET", f"/api/rfqs/{rfq_no}/compare", token=token)
         if not comp or not comp.get("recommended_vendor"):
             print(f"  [skip] {rfq_no} has no recommendation")
@@ -419,17 +514,20 @@ def add_shipment_events(po_numbers: list[tuple[str, str]]) -> None:
 
     print("\n=== shipment events on sourcing POs ===")
     seq = [
-        ("manufacturing",     "Linz, AT",      "FAT scheduled — Andritz Hydro"),
+        ("manufacturing",     "Linz, AT",      "FAT scheduled at vendor works"),
         ("ready_to_dispatch", "Linz, AT",      "FAT cleared, awaiting export licence"),
         ("dispatched",        "Hamburg, DE",   "Loaded on MV Northern Wind"),
         ("in_transit",        "Suez Canal",    "Vessel transiting Suez"),
         ("at_port",           "JNPT, IN",      "Discharged at JNPT — pending customs"),
         ("at_customs",        "JNPT, IN",      "BIS clearance in progress"),
     ]
-    for po_no, tenant_id in po_numbers[:6]:
+    # Every other PO, so each tenant gets some in-flight freight. Stage depth
+    # comes from the PO number (not hash(), which is randomised per process)
+    # so every `make demo` boot shows the same shipments.
+    for po_no, tenant_id in po_numbers[::2]:
         token = _login(tenant_id)
-        # Random-ish stage progression — just walk through a few.
-        for stage, location, note in seq[: (hash(po_no) % 4) + 1]:
+        depth = int("".join(c for c in po_no if c.isdigit()) or 0) % len(seq) + 1
+        for stage, location, note in seq[:depth]:
             evt = _req(
                 "POST",
                 f"/api/logistics/shipments/{po_no}/events",
@@ -438,6 +536,36 @@ def add_shipment_events(po_numbers: list[tuple[str, str]]) -> None:
             )
             if evt:
                 print(f"  + {po_no} → {stage} @ {location}")
+
+
+# ---------------------------------------------------------------------------
+# Pending approvals
+# ---------------------------------------------------------------------------
+
+
+# A buyer proposes an alternate source for each tenant's single-source vendor.
+# Buyers can't onboard vendors directly, so these land in the procurement
+# head's /approvals queue — something to approve live in the demo.
+PENDING_VENDORS = {
+    "northwind": {
+        "name": "GE Vernova Hydro", "category": "Hydro turbine and accessories",
+        "country": "France", "lead_time_days": 330, "on_time_delivery_pct": 91.0,
+        "quality_ppm": 260, "annual_spend_usd": 0, "approved_alternatives": 1,
+    },
+    "helios": {
+        "name": "Oceaneering Connectors", "category": "ROV connectors",
+        "country": "Norway", "lead_time_days": 120, "on_time_delivery_pct": 93.0,
+        "quality_ppm": 210, "annual_spend_usd": 0, "approved_alternatives": 1,
+    },
+}
+
+
+def file_pending_approvals() -> None:
+    print("\n=== buyer vendor proposals (pending head approval) ===")
+    for tenant_id, vendor in PENDING_VENDORS.items():
+        reply = _req("POST", "/api/vendors", vendor, token=_login(tenant_id, "buyer"))
+        approval = (reply or {}).get("approval") or {}
+        print(f"  {tenant_id:10} {vendor['name']} → {(reply or {}).get('status')} {approval.get('approval_id', '')}")
 
 
 # ---------------------------------------------------------------------------
@@ -466,11 +594,14 @@ def main() -> None:
             quantity=w["quantity"],
             quotes=w["quotes"],
             award_pref=w.get("award"),
+            price_factor=w.get("price_factor", 1.0),
+            need_in_days=w.get("need_in_days"),
         )
         if po_no:
             new_pos.append((po_no, TENANT_FOR_PROJECT[w["project_id"]]))
 
     add_shipment_events(existing_pos + new_pos)
+    file_pending_approvals()
 
     # Final tally — reads are tenant-scoped, so report per tenant.
     for tenant_id in sorted({t for t in TENANT_FOR_PROJECT.values()}):

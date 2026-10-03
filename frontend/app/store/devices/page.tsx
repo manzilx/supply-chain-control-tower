@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { SkeletonCard } from "@/components/skeleton";
 import { createEnrolment, createStore, fetchFieldDevices, fetchStores, revokeDevice } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { formatTimestamp } from "@/lib/format";
 import { useToast } from "@/lib/toast-context";
 import { useAsync } from "@/lib/use-async";
@@ -17,7 +18,9 @@ const ROLE_LABEL: Record<StorePersonRole, string> = {
 };
 
 export default function FieldDevicesPage() {
-  const query = useAsync(fetchFieldDevices, []);
+  const { hasPerm } = useAuth();
+  const canEnrol = hasPerm("device", "enrol");
+  const query = useAsync(canEnrol ? fetchFieldDevices : async () => [], [canEnrol]);
   const toast = useToast();
   const [enrolOpen, setEnrolOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -47,19 +50,28 @@ export default function FieldDevicesPage() {
         title="Field Devices"
         description="Phones enrolled to capture GRNs from site. Each device tracks its own sequence watermark for gap detection."
         right={
-          <div className="flex gap-2">
-            <button className="btn btn-secondary" onClick={() => query.reload()}>
-              Refresh
-            </button>
-            <button className="btn btn-primary" onClick={() => setEnrolOpen(true)}>
-              Enrol device
-            </button>
-          </div>
+          canEnrol ? (
+            <div className="flex gap-2">
+              <button className="btn btn-secondary" onClick={() => query.reload()}>
+                Refresh
+              </button>
+              <button className="btn btn-primary" onClick={() => setEnrolOpen(true)}>
+                Enrol device
+              </button>
+            </div>
+          ) : null
         }
       />
 
       <div className="panel overflow-x-auto p-0">
-        {query.loading ? (
+        {!canEnrol ? (
+          <div className="p-6">
+            <EmptyState
+              title="Device management is restricted"
+              hint="Enrolling and revoking site devices is limited to admins and the procurement head."
+            />
+          </div>
+        ) : query.loading ? (
           <div className="p-6 space-y-3">
             <SkeletonCard />
             <SkeletonCard />
