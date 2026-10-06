@@ -332,17 +332,28 @@ def _tool_propose_vendor_onboarding(args: dict) -> Any:
     return gate_vendor(supplier, user)
 
 
+UNVERIFIED_FLAG = "unverified — no performance history (placeholder metrics)"
+
+
 def _proposed_supplier(name: str, args: dict) -> SupplierRecord:
+    """Build the proposal from what the user actually said. Missing
+    performance figures get placeholders and an explicit unverified flag
+    rather than flattering made-up numbers."""
+    verified = all(args.get(k) is not None for k in ("lead_time_days", "on_time_delivery_pct", "quality_ppm"))
+    flags = list(args.get("risk_flags") or ["new supplier"])
+    if not verified:
+        flags.append(UNVERIFIED_FLAG)
     return SupplierRecord(
         name=name,
         category=args.get("category") or "General supplies",
-        country=args.get("country") or "Norway",
-        lead_time_days=int(args.get("lead_time_days", 45)),
-        on_time_delivery_pct=float(args.get("on_time_delivery_pct", 90.0)),
-        quality_ppm=int(args.get("quality_ppm", 500)),
-        annual_spend_usd=float(args.get("annual_spend_usd", 100_000.0)),
-        approved_alternatives=int(args.get("approved_alternatives", 1)),
-        risk_flags=args.get("risk_flags") or ["new supplier"],
+        country=args.get("country") or "Unknown",
+        lead_time_days=int(args.get("lead_time_days") if args.get("lead_time_days") is not None else 45),
+        on_time_delivery_pct=float(args.get("on_time_delivery_pct") if args.get("on_time_delivery_pct") is not None else 0.0),
+        quality_ppm=int(args.get("quality_ppm") if args.get("quality_ppm") is not None else 0),
+        annual_spend_usd=float(args.get("annual_spend_usd") or 0.0),
+        approved_alternatives=int(args.get("approved_alternatives") or 0),
+        risk_flags=flags,
+        performance_verified=verified,
     )
 
 

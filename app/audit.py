@@ -5,7 +5,8 @@ Two views build on this:
   - Progress tracking: per-entity timeline ("what's happened to BOM HYD-CV-001?")
   - Company audit:    global filterable feed + export
 
-In-memory ring buffer (default 10,000 events). On boot the buffer is empty;
+In-memory ring buffer per tenant (default 10,000 events each, so one busy
+tenant can't push another's history out). On boot the buffer is empty;
 subsequent mutations call audit.emit(...) which appends. The buffer is the
 single source of truth for the audit log; the underlying entity stores carry
 their own data shape for fast querying, this just records the deltas.
@@ -21,10 +22,11 @@ import csv
 import logging
 import io
 import uuid
+import heapq
 from collections import deque
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Deque, Dict, List, Optional
+from typing import Deque, Dict, Iterable, Iterator, List, Optional
 
 from .schemas import (
     AuditAction,
@@ -44,8 +46,63 @@ from .schemas import (
 
 log = logging.getLogger("ct.audit")
 
-_MAX_EVENTS = 10_000
-_events: Deque[AuditEvent] = deque(maxlen=_MAX_EVENTS)
+_MAX_EVENTS = 10_000  # per tenant
+
+
+class _TenantRing:
+    """One bounded deque per tenant. Iterating yields every tenant's events
+    merged oldest-first, so readers that did `list(_events)` keep working;
+    snapshot(tenant_id) reads a single tenant's buffer directly. Every
+    operation copies under its own lock, so a reader (e.g. the snapshot
+    writer) never iterates a deque another thread is appending to."""
+
+    def __init__(self, maxlen: int) -> None:
+        self.maxlen = maxlen
+        self._rings: Dict[str, Deque[AuditEvent]] = {}
+        self._guard = Lock()
+
+    def _ring(self, tenant_id: str) -> Deque[AuditEvent]:
+        ring = self._rings.get(tenant_id)
+        if ring is None:
+            ring = self._rings[tenant_id] = deque(maxlen=self.maxlen)
+        return ring
+
+    def append(self, event: AuditEvent) -> None:
+        with self._guard:
+            self._ring(event.tenant_id or "").append(event)
+
+    def extend(self, events: Iterable[AuditEvent]) -> None:
+        # Restore path: bucket, then sort each bucket so the merge stays ordered.
+        buckets: Dict[str, List[AuditEvent]] = {}
+        for e in events:
+            buckets.setdefault(e.tenant_id or "", []).append(e)
+        with self._guard:
+            for tid, items in buckets.items():
+                ring = self._ring(tid)
+                merged = sorted([*ring, *items], key=lambda e: e.occurred_at)
+                ring.clear()
+                ring.extend(merged[-self.maxlen:])
+
+    def clear(self) -> None:
+        with self._guard:
+            self._rings.clear()
+
+    def snapshot(self, tenant_id: Optional[str] = None) -> List[AuditEvent]:
+        with self._guard:
+            if tenant_id is not None:
+                return list(self._rings.get(tenant_id, ()))
+            copies = [list(r) for r in self._rings.values()]
+        return list(heapq.merge(*copies, key=lambda e: e.occurred_at))
+
+    def __iter__(self) -> Iterator[AuditEvent]:
+        return iter(self.snapshot())
+
+    def __len__(self) -> int:
+        with self._guard:
+            return sum(len(r) for r in self._rings.values())
+
+
+_events = _TenantRing(_MAX_EVENTS)
 _lock = Lock()
 
 
@@ -152,7 +209,7 @@ def query(
     """Filter events. Newest-first."""
 
     with _lock:
-        all_events = list(_events)
+        all_events = _events.snapshot(tenant_id)
     # newest-first
     all_events.reverse()
 
@@ -210,7 +267,7 @@ def events_for_entity(
     """All events that name this entity in any lineage slot."""
 
     with _lock:
-        all_events = list(_events)
+        all_events = _events.snapshot(tenant_id)
     out: List[AuditEvent] = []
     for e in all_events:
         if tenant_id is not None and e.tenant_id != tenant_id:
@@ -575,7 +632,7 @@ def pivot_materials(tenant_id: Optional[str] = None) -> List["PivotCount"]:
 
     # Index events by bom_code
     with _lock:
-        all_events = list(_events)
+        all_events = _events.snapshot(tenant_id)
     counts: Dict[str, int] = {}
     last_at: Dict[str, datetime] = {}
     pos_per_code: Dict[str, set] = {}
@@ -630,7 +687,7 @@ def pivot_pos(tenant_id: Optional[str] = None) -> List["PivotCount"]:
     from .sample_data import build_demo_request
 
     with _lock:
-        all_events = list(_events)
+        all_events = _events.snapshot(tenant_id)
     counts: Dict[str, int] = {}
     last_at: Dict[str, datetime] = {}
     for e in all_events:
@@ -686,7 +743,7 @@ def pivot_vendors(tenant_id: Optional[str] = None) -> List["PivotCount"]:
     from .vendor_store import list_runtime
 
     with _lock:
-        all_events = list(_events)
+        all_events = _events.snapshot(tenant_id)
     counts: Dict[str, int] = {}
     last_at: Dict[str, datetime] = {}
     for e in all_events:
@@ -753,7 +810,7 @@ def pivot_vendors(tenant_id: Optional[str] = None) -> List["PivotCount"]:
 
 def stats(tenant_id: Optional[str] = None) -> dict:
     with _lock:
-        all_events = list(_events)
+        all_events = _events.snapshot(tenant_id)
     if tenant_id is not None:
         all_events = [e for e in all_events if e.tenant_id == tenant_id]
     by_action: Dict[str, int] = {}

@@ -1210,7 +1210,7 @@ export type IngestPreviewReply = {
 };
 
 export type IngestCommitReply = {
-  created: { projects: number; bom_items: number; suppliers: number };
+  created: { projects: number; bom_items: number; suppliers: number; suppliers_pending_approval?: number };
   errors: string[];
   refs: string[];
 };

@@ -98,12 +98,15 @@ def _proposed_vendor_from_message(message: str) -> dict:
         re.IGNORECASE,
     )
     if name_match:
-        name = name_match.group(1).strip()
+        # Stop at the first connector so "X Ltd from India for valves" → "X Ltd".
+        name = re.split(r"\s+(?:from|in|based|for|to|with)\b", name_match.group(1), maxsplit=1)[0].strip()
     elif "backup" in msg:
         name = f"Backup {category} Supplier"
     else:
         name = f"Proposed {category} Vendor"
-    return {"name": name, "category": category, "country": "Norway"}
+    country_match = re.search(r"\b(?:from|in|based in)\s+([A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)?)", message)
+    country = country_match.group(1) if country_match else "Unknown"
+    return {"name": name, "category": category, "country": country}
 
 
 def _detect_tone(message: str) -> str:

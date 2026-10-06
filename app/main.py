@@ -722,6 +722,23 @@ async def api_approve(
     return result
 
 
+@app.post("/api/approvals/{approval_id}/retry", response_model=Approval)
+async def api_retry_approval(
+    approval_id: str,
+    user: Annotated[User, Depends(require_perm("approval", "decide"))],
+) -> Approval:
+    """Re-apply an approval whose commit failed. 409 unless it is 'failed'."""
+    from .approvals import get_approval, retry
+    current = get_approval(user.tenant_id, approval_id)
+    if current is None:
+        raise HTTPException(status_code=404, detail="Approval not found")
+    if current.status != "failed":
+        raise HTTPException(status_code=409, detail=f"Only failed approvals can be retried (status: {current.status})")
+    result = retry(user.tenant_id, approval_id, user)
+    assert result is not None
+    return result
+
+
 @app.post("/api/approvals/{approval_id}/reject", response_model=Approval)
 async def api_reject(
     approval_id: str,
@@ -1680,8 +1697,16 @@ async def api_sap_event(
     """Inbound webhook from CPI carrying SAP status changes."""
 
     expected = os.getenv("SAP_WEBHOOK_TOKEN")
-    if expected and not (x_cpi_token and hmac.compare_digest(x_cpi_token, expected)):
-        raise HTTPException(status_code=401, detail="Invalid or missing X-CPI-Token")
+    if expected:
+        if not (x_cpi_token and hmac.compare_digest(x_cpi_token, expected)):
+            raise HTTPException(status_code=401, detail="Invalid or missing X-CPI-Token")
+    elif not demo_login_enabled():
+        # No token configured: only the local demo may post unauthenticated
+        # events. Anything else would let any caller mark POs delivered.
+        raise HTTPException(
+            status_code=503,
+            detail="SAP webhook not configured — set SAP_WEBHOOK_TOKEN",
+        )
 
     from .integrations.sap_cpi import record_event_received
     from .sourcing import apply_sap_event
@@ -1701,32 +1726,39 @@ async def api_sap_health() -> SapHealth:
     return health()
 
 
-@app.post("/api/integrations/sap/resync", dependencies=[Depends(require_role("admin"))])
-async def api_sap_resync() -> dict[str, Any]:  # noqa: ANN401
-    """Manual reconciliation trigger — pulls current status for every synced
-    PR/PO from SAP and updates local state. In Phase 0 mock mode this just
-    walks the existing records and randomises their progression a bit so the
-    flow is testable.
+@app.post("/api/integrations/sap/resync")
+async def api_sap_resync(
+    user: Annotated[User, Depends(require_role("admin"))],
+) -> dict[str, Any]:  # noqa: ANN401
+    """Manual reconciliation for the admin's own tenant: pulls current
+    status for every synced PR/PO from SAP. Live mode treats GR/IR figures as
+    SAP's cumulative totals and sets them; mock mode reports what it would
+    check but never invents receipts or invoices.
     """
-    from .integrations.sap_cpi import get_pr_status, get_po_status
-    from .sourcing import _prs, _pos  # type: ignore[attr-defined]
+    from .integrations.sap_cpi import _mode, get_pr_status, get_po_status
+    from .sourcing import _prs, _pos, recompute_po_receipt  # type: ignore[attr-defined]
 
+    live = _mode() == "live"
     pr_updated = 0
     po_updated = 0
     for pr in _prs.values():
-        if pr.sap_pr_no:
+        if pr.sap_pr_no and pr.tenant_id == user.tenant_id:
             _ = get_pr_status(pr.sap_pr_no)
             pr_updated += 1
     for po in _pos.values():
-        if po.sap_po_no:
-            r = get_po_status(po.sap_po_no)
-            # In mock mode, occasionally bump GR/IR so the demo feels alive
-            if r.get("gr_qty"):
-                po.sap_gr_qty = (po.sap_gr_qty or 0) + float(r["gr_qty"])
-            if r.get("ir_value_usd"):
-                po.sap_ir_value_usd = (po.sap_ir_value_usd or 0) + float(r["ir_value_usd"])
-            po_updated += 1
-    return {"prs_reconciled": pr_updated, "pos_reconciled": po_updated}
+        if not po.sap_po_no or po.tenant_id != user.tenant_id:
+            continue
+        r = get_po_status(po.sap_po_no)
+        po_updated += 1
+        if not live or r.get("error"):
+            continue
+        if r.get("gr_qty") is not None:
+            po.sap_gr_qty = float(r["gr_qty"])
+            recompute_po_receipt(po)
+        if r.get("ir_value_usd") is not None:
+            po.sap_ir_value_usd = float(r["ir_value_usd"])
+        po.sap_last_synced_at = datetime.now(timezone.utc)
+    return {"prs_reconciled": pr_updated, "pos_reconciled": po_updated, "mode": _mode()}
 
 
 # --- Storemark: site-store GRN capture --------------------------------------

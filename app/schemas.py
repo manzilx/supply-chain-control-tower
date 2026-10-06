@@ -46,6 +46,10 @@ class SupplierRecord(BaseModel):
     annual_spend_usd: float = Field(ge=0)
     approved_alternatives: int = Field(default=0, ge=0)
     risk_flags: List[str] = Field(default_factory=list)
+    # False when delivery/quality/lead-time figures were not supplied and the
+    # record carries placeholders (chat onboarding, sparse spreadsheets). Such
+    # vendors are score-capped and never recommended as alternates.
+    performance_verified: bool = True
 
     @field_validator("name")
     @classmethod
@@ -839,6 +843,7 @@ class SourcingPO(BaseModel):
     sap_ir_value_usd: Optional[float] = None  # invoice receipt value from SAP
     ct_gr_qty: Optional[float] = None    # site GRN qty from Storemark
     ct_delivered_at: Optional[datetime] = None
+    sap_closed_at: Optional[datetime] = None  # SAP delivery-completed (may be short-closed)
 
 
 class SourcingTimelineEvent(BaseModel):
@@ -1517,6 +1522,12 @@ class SapEvent(BaseModel):
     """Inbound webhook payload from CPI when SAP raises a status change."""
 
     kind: SapEventKind
+    # Idempotency key from CPI so retries/replays apply once. Must identify
+    # the line, not just the document: one material document can carry
+    # several items, so send e.g. "<MBLNR>-<MJAHR>-<ZEILE>". Without it a
+    # payload fingerprint is used, which also folds two identical receipts
+    # posted in the same instant into one.
+    event_id: Optional[str] = None
     sap_doc_no: str  # SAP PR or PO number
     ct_ref: Optional[str] = None  # Control Tower's PR/PO number (BEDNR)
     new_status: Optional[str] = None

@@ -192,6 +192,9 @@ export default function IngestPage() {
             <Stat label="Projects" value={result.created.projects} />
             <Stat label="BOM lines" value={result.created.bom_items} />
             <Stat label="Suppliers" value={result.created.suppliers} />
+            {result.created.suppliers_pending_approval ? (
+              <Stat label="Suppliers awaiting approval" value={result.created.suppliers_pending_approval} />
+            ) : null}
           </div>
           {result.errors.length ? (
             <ul className="mt-4 space-y-1 text-xs">
@@ -209,7 +212,10 @@ export default function IngestPage() {
 }
 
 function SheetCard({ sheet }: { sheet: IngestSheetPreview }) {
-  const sampleKeys = sheet.sample.length ? Object.keys(sheet.sample[0]).slice(0, 7) : [];
+  // "row" is the source row number the backend keeps for error messages.
+  const sampleKeys = sheet.sample.length
+    ? Object.keys(sheet.sample[0]).filter((k) => k !== "row").slice(0, 7)
+    : [];
   return (
     <article className="panel-sm space-y-3">
       <div className="flex items-center gap-2 flex-wrap">

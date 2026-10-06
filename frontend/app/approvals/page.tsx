@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { SkeletonCard } from "@/components/skeleton";
-import { approveApproval, fetchApprovals, rejectApproval } from "@/lib/api";
+import { approveApproval, fetchApprovals, rejectApproval, retryApproval } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { formatTimestamp } from "@/lib/format";
 import { useToast } from "@/lib/toast-context";
@@ -82,6 +82,23 @@ export default function ApprovalsPage() {
       reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not record decision");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function retry(a: Approval) {
+    setBusy(a.approval_id);
+    try {
+      const result = await retryApproval(a.approval_id);
+      if (result.status === "failed") {
+        toast.error(`Still failing — ${result.decision_note ?? "commit failed"}`);
+      } else {
+        toast.success(result.result_ref ? `Applied — ${result.result_ref}` : "Applied", resultLink(result));
+      }
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not retry");
     } finally {
       setBusy(null);
     }
@@ -192,6 +209,14 @@ export default function ApprovalsPage() {
                       </button>
                     </div>
                   </div>
+                ) : a.status === "failed" && canDecide ? (
+                  <button
+                    className="btn btn-secondary w-full sm:w-auto"
+                    disabled={busy === a.approval_id}
+                    onClick={() => void retry(a)}
+                  >
+                    {busy === a.approval_id ? "…" : "Retry"}
+                  </button>
                 ) : null}
               </div>
             </article>

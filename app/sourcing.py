@@ -42,6 +42,11 @@ _quotes_by_rfq: Dict[str, List[Quote]] = {}
 _awards: Dict[str, Award] = {}
 _pos: Dict[str, SourcingPO] = {}
 _counter = {"pr": 0, "rfq": 0, "quote": 0, "award": 0, "po": 0}
+# Inbound SAP events already applied: dedupe key -> CT ref. CPI retries and
+# replays must not post the same goods receipt twice. Insertion-ordered; the
+# oldest keys are dropped past _SAP_SEEN_MAX.
+_sap_seen: Dict[str, str] = {}
+_SAP_SEEN_MAX = 50_000
 
 
 def _next(kind: str, prefix: str, width: int = 4) -> str:
@@ -954,6 +959,7 @@ def submit_po_to_sap(po_no: str, tenant_id: Optional[str] = None):
     return po
 
 
+@invalidates_cache
 def apply_sap_event(event) -> tuple[bool, Optional[str], Optional[str], Optional[str]]:
     """Apply an inbound SAP event to the matching PR or PO.
 
@@ -962,6 +968,16 @@ def apply_sap_event(event) -> tuple[bool, Optional[str], Optional[str], Optional
     """
 
     from .audit import emit
+
+    key = sap_event_key(event)
+    if key in _sap_seen:
+        ref = _sap_seen[key]
+        return True, ref, None, f"duplicate event — already applied to {ref}, ignored"
+
+    def _remember(ref: str) -> None:
+        _sap_seen[key] = ref
+        while len(_sap_seen) > _SAP_SEEN_MAX:
+            del _sap_seen[next(iter(_sap_seen))]
 
     def _record(kind: str, ent_id: str, ct_ref: str, action_str: str, extra_meta: dict | None = None):
         # Map SAP event kind to a strong audit action when possible
@@ -1022,60 +1038,104 @@ def apply_sap_event(event) -> tuple[bool, Optional[str], Optional[str], Optional
             },
         )
 
+    def _to_pr(pr: PurchaseRequisition):
+        _apply_to_pr(pr, event)
+        _remember(pr.pr_no)
+        _record("pr", pr.pr_no, pr.pr_no, f"SAP event {event.kind} applied to PR {pr.pr_no}")
+        return True, pr.pr_no, "PR", f"applied {event.kind} to PR {pr.pr_no}"
+
+    def _to_po(po: SourcingPO):
+        over = _apply_to_po(po, event)
+        _remember(po.po_no)
+        note = f"applied {event.kind} to PO {po.po_no}"
+        meta = None
+        if over:
+            note += f" — over-receipt: {po.sap_gr_qty:g} received against {po.quantity:g} ordered"
+            meta = {"over_receipt": True, "gr_total": po.sap_gr_qty, "po_quantity": po.quantity}
+        _record("po", po.po_no, po.po_no, f"SAP event {event.kind} applied to PO {po.po_no}"
+                + (" (over-receipt)" if over else ""), meta)
+        return True, po.po_no, "PO", note
+
     # Try CT ref first
     if event.ct_ref:
         if event.ct_ref in _prs:
-            _apply_to_pr(_prs[event.ct_ref], event)
-            _record("pr", event.ct_ref, event.ct_ref, f"SAP event {event.kind} applied to PR {event.ct_ref}")
-            return True, event.ct_ref, "PR", f"applied {event.kind} to PR {event.ct_ref}"
+            return _to_pr(_prs[event.ct_ref])
         if event.ct_ref in _pos:
-            _apply_to_po(_pos[event.ct_ref], event)
-            _record("po", event.ct_ref, event.ct_ref, f"SAP event {event.kind} applied to PO {event.ct_ref}")
-            return True, event.ct_ref, "PO", f"applied {event.kind} to PO {event.ct_ref}"
+            return _to_po(_pos[event.ct_ref])
 
     # Fallback: match by SAP doc number
     for pr in _prs.values():
         if pr.sap_pr_no == event.sap_doc_no:
-            _apply_to_pr(pr, event)
-            _record("pr", pr.pr_no, pr.pr_no, f"SAP event {event.kind} applied to PR {pr.pr_no}")
-            return True, pr.pr_no, "PR", f"applied {event.kind} to PR {pr.pr_no}"
+            return _to_pr(pr)
     for po in _pos.values():
         if po.sap_po_no == event.sap_doc_no:
-            _apply_to_po(po, event)
-            _record("po", po.po_no, po.po_no, f"SAP event {event.kind} applied to PO {po.po_no}")
-            return True, po.po_no, "PO", f"applied {event.kind} to PO {po.po_no}"
+            return _to_po(po)
 
     return False, None, None, f"no matching PR/PO for sap_doc_no={event.sap_doc_no}"
+
+
+def sap_event_key(event) -> str:
+    """Dedupe key: CPI's event_id when sent (document + year + item, see
+    SapEvent.event_id), else a fingerprint of the payload — a replay of the
+    same message carries the same occurred_at."""
+    if event.event_id:
+        return f"id:{event.event_id}"
+    import hashlib
+    parts = [event.kind, event.sap_doc_no, event.ct_ref or "", repr(event.quantity),
+             repr(event.value_usd), event.occurred_at.isoformat(), event.new_status or ""]
+    return "fp:" + hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
 def _apply_to_pr(pr: PurchaseRequisition, event) -> None:
     pr.sap_last_synced_at = _now()
     if event.kind == "pr_released":
         pr.sap_status = "synced"
-        pr.status = "rfq_issued"  # SAP-released PRs are ready to source
+        if pr.status == "draft":
+            # SAP-released PRs are ready to source — but never pull a PR that
+            # already has quotes, an award or a PO back to the start.
+            pr.status = "rfq_issued"
     elif event.kind == "pr_rejected":
         pr.sap_status = "failed"
         pr.sap_error = "Rejected in SAP"
     _prs[pr.pr_no] = pr
 
 
-def _apply_to_po(po: SourcingPO, event) -> None:
+def _apply_to_po(po: SourcingPO, event) -> bool:
+    """Apply one SAP event. Returns True when a goods receipt takes the SAP
+    received total past the ordered quantity (recorded, not rejected — SAP
+    already posted it and is the source of truth)."""
     po.sap_last_synced_at = _now()
+    over = False
     if event.kind == "po_released":
         po.sap_status = "synced"
-        po.status = "released"
+        if po.status == "draft":
+            po.status = "released"  # don't regress in_transit / delivered
     elif event.kind == "po_blocked":
         po.sap_status = "failed"
         po.sap_error = "Blocked in SAP"
     elif event.kind == "gr_posted" and event.quantity is not None:
+        # Negative quantities are reversals (SAP movement type 102).
         po.sap_gr_qty = (po.sap_gr_qty or 0) + float(event.quantity)
-        if po.sap_gr_qty >= po.quantity:
-            po.status = "delivered"
+        over = po.sap_gr_qty > po.quantity
+        recompute_po_receipt(po)
     elif event.kind == "ir_posted" and event.value_usd is not None:
         po.sap_ir_value_usd = (po.sap_ir_value_usd or 0) + float(event.value_usd)
     elif event.kind == "po_closed":
         po.status = "delivered"
+        po.sap_closed_at = _now()
     _pos[po.po_no] = po
+    return over
+
+
+def recompute_po_receipt(po: SourcingPO) -> None:
+    """Delivered when either receipt channel covers the PO quantity. A SAP
+    reversal can take a GR-delivered PO back to released — unless the site
+    store confirmed delivery or SAP closed the PO (short-closes are normal)."""
+    received = max(po.ct_gr_qty or 0, po.sap_gr_qty or 0)
+    if received >= po.quantity:
+        po.status = "delivered"
+    elif po.status == "delivered" and po.ct_delivered_at is None and po.sap_closed_at is None:
+        po.status = "released"
 
 
 def apply_ct_receipt(po_no: str, qty: float, tenant_id: str, grn_no: str) -> Optional[SourcingPO]:
