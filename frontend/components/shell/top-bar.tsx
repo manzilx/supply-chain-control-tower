@@ -18,15 +18,16 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export function TopBar() {
-  const { user, tenant, tenantOverride, setTenantOverride, logout, status: authStatus } = useAuth();
+  const { user, tenant, tenantOverride, canSwitchTenant, setTenantOverride, logout, status: authStatus } = useAuth();
   const router = useRouter();
-  const isAdmin = user?.role === "admin";
+  // Only platform admins may hop tenants; a tenant's own admin stays home.
+  const showTenantSwitcher = canSwitchTenant;
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [tenantsLoading, setTenantsLoading] = useState(false);
   const [switchingTenant, setSwitchingTenant] = useState(false);
 
   useEffect(() => {
-    if (!isAdmin || authStatus !== "authed") return;
+    if (!showTenantSwitcher || authStatus !== "authed") return;
     let cancelled = false;
     setTenantsLoading(true);
     fetchTenants()
@@ -42,7 +43,7 @@ export function TopBar() {
     return () => {
       cancelled = true;
     };
-  }, [isAdmin, authStatus]);
+  }, [showTenantSwitcher, authStatus]);
 
   const handleSignOut = () => {
     logout();
@@ -98,7 +99,7 @@ export function TopBar() {
                   {user.display_name}
                 </div>
                 <div className="flex items-center gap-1.5 text-[0.68rem] uppercase tracking-[0.12em] text-muted">
-                  {isAdmin && tenants.length > 0 ? (
+                  {showTenantSwitcher && tenants.length > 0 ? (
                     <select
                       className="!w-auto max-w-[11rem] py-0.5 px-2 text-[0.68rem] uppercase tracking-[0.12em] rounded-lg border border-line bg-white/[0.02] text-ink"
                       value={tenantOverride ?? user.tenant_id}

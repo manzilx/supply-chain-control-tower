@@ -210,17 +210,49 @@ def decide(
                 commit_payload = {**approval.payload, "_decided_by": approver.user_id}
                 approval.result_ref = committer(commit_payload, tenant_id)
             except Exception as e:  # noqa: BLE001
+                # The decision stands but nothing was written — say so instead
+                # of showing "approved" for a change that never happened.
+                approval.status = "failed"
                 approval.decision_note = (
                     (note + " | " if note else "")
-                    + f"commit failed: {type(e).__name__}: {e}"
+                    + f"commit failed: {e}"
                 )
     else:
         approval.status = "rejected"
+    _audit_decision(approval, approver)
     _flush_critical_safe()
     return approval
 
 
+def _audit_decision(approval: Approval, approver: User) -> None:
+    from .audit import emit
+
+    action = {"approved": "approved", "rejected": "rejected"}.get(approval.status, "commit_failed")
+    verb = {"approved": "Approved", "rejected": "Rejected"}.get(approval.status, "Approved, but commit failed:")
+    emit(
+        action=action,  # type: ignore[arg-type]
+        entity_kind="approval",
+        entity_id=approval.approval_id,
+        subject=approval.title,
+        summary=f"{verb} {approval.title}"
+        + (f" → {approval.result_ref}" if approval.result_ref else "")
+        + (f" ({approval.decision_note})" if approval.decision_note else ""),
+        actor=approver.display_name,
+        source="api",
+        tenant_id=approval.tenant_id,
+        rfq_no=approval.payload.get("rfq_no"),
+        metadata={
+            "kind": approval.kind,
+            "requested_by": approval.requested_by,
+            "decided_by": approver.user_id,
+        },
+    )
+
+
 # --- Gates (called by routes) ------------------------------------------------
+
+
+_AWARD_KINDS = ("po_create", "award_single_source")
 
 
 def gate_award(rfq_no: str, request: AwardRFQRequest, user: User) -> GatedAwardReply:
@@ -235,6 +267,21 @@ def gate_award(rfq_no: str, request: AwardRFQRequest, user: User) -> GatedAwardR
         # Let the normal route 404 — gate only handles the happy path.
         award = sourcing.award_rfq(rfq_no, request, tenant_id=tenant_id)
         return GatedAwardReply(status="applied", award=award)
+    if rfq.status == "awarded":
+        raise sourcing.AlreadyAwardedError(f"RFQ {rfq_no} is already awarded")
+    pending = next(
+        (
+            a for a in _approvals.get(tenant_id, {}).values()
+            if a.status == "pending"
+            and a.kind in _AWARD_KINDS
+            and a.payload.get("rfq_no") == rfq_no
+        ),
+        None,
+    )
+    if pending is not None:
+        raise sourcing.AlreadyAwardedError(
+            f"An award for RFQ {rfq_no} is already waiting for approval ({pending.approval_id})"
+        )
 
     quotes = sourcing.get_quotes(rfq_no, tenant_id=tenant_id)
     quote = next((q for q in quotes if q.quote_id == request.quote_id), None)

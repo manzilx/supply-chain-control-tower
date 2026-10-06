@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { fetchPersonas } from "@/lib/api";
+import { fetchAuthMode, fetchPersonas } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { Persona, Role } from "@/lib/types";
 
@@ -26,16 +26,26 @@ const ROLE_ACCENT: Record<Role, string> = {
 };
 
 export default function LoginPage() {
+  const [demoLogin, setDemoLogin] = useState<boolean | null>(null);
   const [personas, setPersonas] = useState<Persona[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const router = useRouter();
   const { login, status } = useAuth();
 
   useEffect(() => {
-    fetchPersonas()
-      .then(setPersonas)
-      .catch((e) => setError(e instanceof Error ? e.message : "Could not load personas"));
+    fetchAuthMode()
+      .then(({ demo_login }) => demo_login)
+      // An older backend has no /api/auth/mode — it only knows the picker.
+      .catch(() => true)
+      .then((demo) => {
+        setDemoLogin(demo);
+        if (!demo) return;
+        return fetchPersonas().then(setPersonas);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not reach the server"));
   }, []);
 
   useEffect(() => {
@@ -52,11 +62,11 @@ export default function LoginPage() {
     return Array.from(groups.entries());
   }, [personas]);
 
-  const handleLogin = async (userId: string) => {
+  const handleLogin = async (userId: string, pwd?: string) => {
     setSubmitting(userId);
     setError(null);
     try {
-      await login(userId);
+      await login(userId, pwd);
       router.replace("/overview");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Login failed");
@@ -72,10 +82,16 @@ export default function LoginPage() {
           <div className="text-[0.68rem] uppercase tracking-[0.2em] text-muted font-bold">
             Supply Chain Control Tower
           </div>
-          <h1 className="mt-2 text-2xl font-semibold text-ink">Pick a persona to sign in</h1>
-          <p className="mt-1 text-sm text-muted">
-            Demo environment — no password required. Each tenant seeds one user per role.
-          </p>
+          {demoLogin === false ? (
+            <h1 className="mt-2 text-2xl font-semibold text-ink">Sign in</h1>
+          ) : (
+            <>
+              <h1 className="mt-2 text-2xl font-semibold text-ink">Pick a persona to sign in</h1>
+              <p className="mt-1 text-sm text-muted">
+                Demo environment — no password required. Each tenant seeds one user per role.
+              </p>
+            </>
+          )}
         </div>
 
         {error ? (
@@ -84,8 +100,46 @@ export default function LoginPage() {
           </div>
         ) : null}
 
-        {!personas ? (
-          <div className="text-center text-sm text-muted">Loading personas…</div>
+        {demoLogin === false ? (
+          <form
+            className="mx-auto max-w-sm space-y-4 rounded-xl border border-line bg-[rgba(17,26,36,0.6)] p-5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleLogin(email.trim(), password);
+            }}
+          >
+            <label className="block text-sm text-muted">
+              Email
+              <input
+                type="email"
+                autoComplete="username"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="mt-1 w-full rounded border border-line bg-[rgba(7,16,24,0.6)] px-3 py-2 text-sm text-ink"
+              />
+            </label>
+            <label className="block text-sm text-muted">
+              Password
+              <input
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="mt-1 w-full rounded border border-line bg-[rgba(7,16,24,0.6)] px-3 py-2 text-sm text-ink"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={submitting !== null}
+              className="w-full rounded-lg border border-[rgba(120,180,255,0.4)] bg-[rgba(17,26,36,0.9)] px-3 py-2 text-sm font-semibold text-ink disabled:opacity-50"
+            >
+              {submitting !== null ? "Signing in…" : "Sign in"}
+            </button>
+          </form>
+        ) : !personas ? (
+          <div className="text-center text-sm text-muted">Loading…</div>
         ) : (
           <div className="space-y-6">
             {byTenant.map(([tenantId, { name, personas: members }]) => (

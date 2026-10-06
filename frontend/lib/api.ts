@@ -33,6 +33,7 @@ import type {
   GrnDetail,
   GrnSummary,
   LedgerEntryOut,
+  AuthModeReply,
   LoginReply,
   LogisticsQueue,
   MeReply,
@@ -178,6 +179,10 @@ export async function analyzeScenario(payload: AgentRequest): Promise<AgentRespo
 }
 
 // --- Auth (no token required for login/personas) --------------------------
+
+export async function fetchAuthMode(): Promise<AuthModeReply> {
+  return request<AuthModeReply>("/api/auth/mode");
+}
 
 export async function fetchPersonas(): Promise<Persona[]> {
   return request<Persona[]>("/api/auth/personas");

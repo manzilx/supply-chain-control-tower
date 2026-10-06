@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 _tmp_state = tempfile.mkdtemp(prefix="ct-test-state-")
 os.environ.setdefault("STATE_DIR", _tmp_state)
 os.environ.setdefault("APP_ENV", "dev")
+os.environ.setdefault("DEMO_LOGIN", "1")
 
 from app.auth import issue_token  # noqa: E402
 from app.main import app  # noqa: E402

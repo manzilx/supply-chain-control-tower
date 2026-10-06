@@ -81,6 +81,17 @@ def get_user(user_id: str) -> Optional[User]:
     return _users.get(user_id)
 
 
+def find_user(login: str) -> Optional[User]:
+    """Look a user up by user_id or (case-insensitive) email."""
+
+    login = login.strip()
+    user = _users.get(login)
+    if user is not None:
+        return user
+    lowered = login.lower()
+    return next((u for u in _users.values() if u.email.lower() == lowered), None)
+
+
 def list_personas() -> List[Persona]:
     """Public list for the login persona picker."""
 

@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 from urllib import error, request
 
-from .agent_tools import TOOLS, invoke
+from .agent_tools import get_tool_user, invoke, tools_for
 from .sample_data import build_demo_request
 from .schemas import (
     AgentPersona,
@@ -320,7 +320,8 @@ def _llm_tools_schema() -> list:
                 "parameters": t.input_schema,
             },
         }
-        for t in TOOLS.values()
+        # Only offer the model tools this user's role may run.
+        for t in tools_for(get_tool_user())
     ]
 
 

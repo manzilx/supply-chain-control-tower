@@ -77,7 +77,7 @@ def sync_grn(
     client: TestClient,
     device_headers: dict[str, str],
     lines: Optional[list[dict]] = None,
-    photo: bytes = b"fake-jpeg-bytes",
+    photo: bytes = b"\xff\xd8\xff\xe0fake-jpeg-bytes",
     **overrides,
 ):
     grn_id = overrides.pop("grn_id", uuid4().hex)

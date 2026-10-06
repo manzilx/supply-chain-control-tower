@@ -3,7 +3,14 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# Inputs reject NaN/±inf: one `nan` quantity otherwise poisons every total it
+# touches (procurement-plan value became null) and serialises as invalid JSON.
+_FINITE = ConfigDict(allow_inf_nan=False)
+
+# Client-chosen IDs that end up in file paths or as primary keys.
+SAFE_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 
 
 Severity = Literal["low", "medium", "high", "critical"]
@@ -28,15 +35,24 @@ class CompanyProfile(BaseModel):
 
 
 class SupplierRecord(BaseModel):
-    name: str
+    model_config = _FINITE
+
+    name: str = Field(min_length=1)
     category: str
     country: str
-    lead_time_days: int
-    on_time_delivery_pct: float
-    quality_ppm: int
-    annual_spend_usd: float
-    approved_alternatives: int = 0
+    lead_time_days: int = Field(ge=0)
+    on_time_delivery_pct: float = Field(ge=0, le=100)
+    quality_ppm: int = Field(ge=0)
+    annual_spend_usd: float = Field(ge=0)
+    approved_alternatives: int = Field(default=0, ge=0)
     risk_flags: List[str] = Field(default_factory=list)
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("name must not be blank")
+        return v
 
 
 class InventoryItem(BaseModel):
@@ -603,6 +619,7 @@ AuditAction = Literal[
     "delivered",
     "approved",
     "rejected",
+    "commit_failed",  # approval granted but its write could not be applied
     "exported",
     "ai_generated",
     "followup_sent",
@@ -838,33 +855,37 @@ class SourcingTimeline(BaseModel):
 
 
 class CreatePRRequest(BaseModel):
+    model_config = _FINITE
+
     project_id: str
     bom_item_id: Optional[str] = None
     code: Optional[str] = None
     description: Optional[str] = None
-    quantity: Optional[float] = None
+    quantity: Optional[float] = Field(default=None, gt=0)
     uom: Optional[str] = None
     need_by: Optional[date] = None
     milestone_code: Optional[str] = None
-    budget_value_usd: Optional[float] = None
+    budget_value_usd: Optional[float] = Field(default=None, ge=0)
     buyer: Optional[str] = None
     strategy: Optional[SourcingStrategy] = None
 
 
 class CreateRFQRequest(BaseModel):
     pr_no: str
-    vendors: List[str]
-    due_in_days: int = 10
+    vendors: List[str] = Field(min_length=1)
+    due_in_days: int = Field(default=10, ge=1, le=365)
     notes: Optional[str] = None
 
 
 class CreateQuoteRequest(BaseModel):
-    vendor: str
-    unit_price_usd: float
-    lead_time_days: int
-    quantity: Optional[float] = None
+    model_config = _FINITE
+
+    vendor: str = Field(min_length=1)
+    unit_price_usd: float = Field(ge=0)
+    lead_time_days: int = Field(ge=0)
+    quantity: Optional[float] = Field(default=None, gt=0)
     incoterm: Incoterm = "CIP"
-    validity_days: int = 30
+    validity_days: int = Field(default=30, ge=1)
     notes: Optional[str] = None
 
 
@@ -1195,7 +1216,7 @@ class SimulationRequest(BaseModel):
     scenario: SimulationScenario
     target: str
     alternate_vendor: Optional[str] = None
-    custom_slip_days: Optional[int] = None
+    custom_slip_days: Optional[int] = Field(default=None, ge=0, le=730)
 
 
 class AffectedItem(BaseModel):
@@ -1335,7 +1356,12 @@ class Persona(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    user_id: str
+    user_id: str = Field(max_length=320)  # user_id or email
+    password: Optional[str] = Field(default=None, max_length=1024)
+
+
+class AuthModeReply(BaseModel):
+    demo_login: bool
 
 
 class LoginReply(BaseModel):
@@ -1343,19 +1369,21 @@ class LoginReply(BaseModel):
     user: User
     tenant: Tenant
     permissions: List[str]
+    can_switch_tenant: bool = False
 
 
 class MeReply(BaseModel):
     user: User
     tenant: Tenant
     permissions: List[str]
+    can_switch_tenant: bool = False
 
 
 class SwitchTenantRequest(BaseModel):
     tenant_id: str
 
 
-ApprovalStatus = Literal["pending", "approved", "rejected", "auto_approved"]
+ApprovalStatus = Literal["pending", "approved", "rejected", "auto_approved", "failed"]
 ApprovalKind = Literal[
     "po_create",
     "award_single_source",
@@ -1540,7 +1568,7 @@ class EnrolmentInviteOut(BaseModel):
 
 class EnrolDeviceRequest(BaseModel):
     code: str
-    device_id: str
+    device_id: str = Field(pattern=SAFE_ID_PATTERN)
     model: Optional[str] = None
     app_version: Optional[str] = None
 
@@ -1615,11 +1643,13 @@ class FieldContext(BaseModel):
 
 
 class ManualGrnLine(BaseModel):
-    line_no: int
+    model_config = _FINITE
+
+    line_no: int = Field(ge=0)
     description_raw: str
     code: Optional[str] = None
     uom_raw: Optional[str] = None
-    qty_challan: Optional[float] = None
+    qty_challan: Optional[float] = Field(default=None, ge=0)
     qty_received: float = Field(ge=0)
     qty_damaged: float = Field(default=0, ge=0)
     qty_rejected: float = Field(default=0, ge=0)
@@ -1627,8 +1657,8 @@ class ManualGrnLine(BaseModel):
 
 
 class FieldGrnRecord(BaseModel):
-    grn_id: str
-    sequence_no: int
+    grn_id: str = Field(pattern=SAFE_ID_PATTERN)  # becomes the photo filename
+    sequence_no: int = Field(ge=0)
     source_kind: Literal["contractor", "free_issue"] = "contractor"
     observed_at: str
     device_clock_offset_ms: Optional[int] = None
@@ -1704,6 +1734,8 @@ class GrnDetail(BaseModel):
 
 
 class ConfirmLine(BaseModel):
+    model_config = _FINITE
+
     line_no: int
     po_no: Optional[str] = None
     no_po: bool = False

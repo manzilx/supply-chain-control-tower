@@ -261,7 +261,8 @@ async def api_get_grn_photo(
         conn.close()
     if row is None or row["tenant_id"] != user.tenant_id:
         raise HTTPException(status_code=404, detail="GRN not found")
-    return FileResponse(row["photo_path"], media_type="image/jpeg")
+    ext = row["photo_path"].rsplit(".", 1)[-1].lower()
+    return FileResponse(row["photo_path"], media_type=grn_mod.PHOTO_MEDIA_TYPES.get(ext, "image/jpeg"))
 
 
 @router.post("/api/store/grns/{grn_id}/confirm", response_model=ConfirmGrnReply)

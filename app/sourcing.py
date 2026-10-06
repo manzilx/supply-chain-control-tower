@@ -527,6 +527,10 @@ def compare_quotes(rfq_no: str, tenant_id: Optional[str] = None) -> Optional[Quo
     )
 
 
+class AlreadyAwardedError(ValueError):
+    """The RFQ already has an award; a second one would mean a second PO."""
+
+
 @invalidates_cache
 def award_rfq(
     rfq_no: str,
@@ -543,6 +547,14 @@ def award_rfq(
     quote = next((q for q in quotes if q.quote_id == request.quote_id), None)
     if not quote:
         return None
+    existing = next((a for a in _awards.values() if a.rfq_no == rfq_no), None)
+    if rfq.status == "awarded" or existing is not None:
+        # One award (and one PO) per RFQ. Also stops a stale approval from
+        # committing after someone else already awarded the RFQ.
+        raise AlreadyAwardedError(
+            f"RFQ {rfq_no} is already awarded"
+            + (f" ({existing.award_id} to {existing.vendor})" if existing else "")
+        )
 
     award_id = _next("award", "AWD", width=4)
     rationale = request.rationale
@@ -569,18 +581,16 @@ def award_rfq(
         awarded_at=_now(),
         awarded_by=request.awarded_by or "Control Tower",
     )
+    pr = _prs.get(rfq.pr_no)
+    # Build the PO before touching any other store, so a failure here can't
+    # leave the RFQ marked awarded with no PO behind it.
+    po = _create_po_from_award(award=award, rfq=rfq, quote=quote, pr=pr)
     _awards[award_id] = award
     rfq.status = "awarded"
     _rfqs[rfq_no] = rfq
-    pr = _prs.get(rfq.pr_no)
-    if pr:
-        pr.status = "awarded"
-        pr.award_id = award_id
-        _prs[rfq.pr_no] = pr
-
-    po = _create_po_from_award(award=award, rfq=rfq, quote=quote, pr=pr)
     if pr:
         pr.status = "po_created"
+        pr.award_id = award_id
         pr.po_no = po.po_no
         _prs[rfq.pr_no] = pr
 

@@ -23,11 +23,14 @@ from __future__ import annotations
 import csv
 import difflib
 import io
+import math
 import re
 import time
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+
+from pydantic import ValidationError
 
 from .schemas import (
     BOMItem,
@@ -231,9 +234,10 @@ def _to_float(s: Optional[str]) -> Optional[float]:
         return None
     cleaned = re.sub(r"[,$\s]", "", s)
     try:
-        return float(cleaned)
+        value = float(cleaned)
     except ValueError:
         return None
+    return value if math.isfinite(value) else None  # "nan"/"inf" are not numbers
 
 
 def _to_int(s: Optional[str]) -> Optional[int]:
@@ -268,6 +272,14 @@ def _validate_rows(entity: str, mapping: Dict[str, int], rows: List[List[Any]]) 
             if qty <= 0:
                 errors.append(f"row {idx}: quantity must be positive")
                 continue
+            unit_cost = _to_float(_cell(raw, mapping, "unit_cost_usd"))
+            if unit_cost is not None and unit_cost < 0:
+                errors.append(f"row {idx}: unit cost cannot be negative")
+                continue
+            lead_days = _to_int(_cell(raw, mapping, "long_lead_days"))
+            if lead_days is not None and lead_days < 0:
+                errors.append(f"row {idx}: lead time cannot be negative")
+                continue
             status = (_cell(raw, mapping, "status") or "").lower()
             spec = _cell(raw, mapping, "spec_doc_id")
             if status and status not in _VALID_BOM_STATUSES:
@@ -276,11 +288,11 @@ def _validate_rows(entity: str, mapping: Dict[str, int], rows: List[List[Any]]) 
             out.append({
                 "code": code, "description": desc, "quantity": qty,
                 "uom": _cell(raw, mapping, "uom") or "EA",
-                "unit_cost_usd": _to_float(_cell(raw, mapping, "unit_cost_usd")),
+                "unit_cost_usd": unit_cost,
                 "supplier_name": _cell(raw, mapping, "supplier_name"),
                 "spec_doc_id": spec,
                 "drawing_id": _cell(raw, mapping, "drawing_id"),
-                "long_lead_days": _to_int(_cell(raw, mapping, "long_lead_days")),
+                "long_lead_days": lead_days,
                 "planned_need_date": _to_date(_cell(raw, mapping, "planned_need_date")),
                 "milestone_code": _cell(raw, mapping, "milestone_code"),
                 "project_id": _cell(raw, mapping, "project_id"),
@@ -310,15 +322,29 @@ def _validate_rows(entity: str, mapping: Dict[str, int], rows: List[List[Any]]) 
                 errors.append(f"row {idx}: missing name/category/country")
                 continue
             flags_raw = _cell(raw, mapping, "risk_flags") or ""
-            out.append({
+
+            def num(field: str, default, conv=_to_float):
+                v = conv(_cell(raw, mapping, field))
+                return default if v is None else v  # a real 0 stays 0
+
+            record = {
                 "name": name, "category": cat, "country": country,
-                "lead_time_days": _to_int(_cell(raw, mapping, "lead_time_days")) or 60,
-                "on_time_delivery_pct": _to_float(_cell(raw, mapping, "on_time_delivery_pct")) or 90.0,
-                "quality_ppm": _to_int(_cell(raw, mapping, "quality_ppm")) or 500,
-                "annual_spend_usd": _to_float(_cell(raw, mapping, "annual_spend_usd")) or 0.0,
-                "approved_alternatives": _to_int(_cell(raw, mapping, "approved_alternatives")) or 0,
+                "lead_time_days": num("lead_time_days", 60, _to_int),
+                "on_time_delivery_pct": num("on_time_delivery_pct", 90.0),
+                "quality_ppm": num("quality_ppm", 500, _to_int),
+                "annual_spend_usd": num("annual_spend_usd", 0.0),
+                "approved_alternatives": num("approved_alternatives", 0, _to_int),
                 "risk_flags": [f.strip() for f in re.split(r"[;,]", flags_raw) if f.strip()],
-            })
+            }
+            try:
+                SupplierRecord(**record)
+            except ValidationError as e:
+                problems = "; ".join(
+                    f"{'.'.join(str(p) for p in err['loc'])} {err['msg']}" for err in e.errors()
+                )
+                errors.append(f"row {idx}: {problems}")
+                continue
+            out.append(record)
     return out, errors
 
 

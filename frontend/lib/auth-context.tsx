@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 
-import type { LoginReply, Tenant, User } from "@/lib/types";
+import type { LoginReply, MeReply, Tenant, User } from "@/lib/types";
 import {
   getTenantOverride,
   getToken,
@@ -29,7 +29,8 @@ type AuthValue = {
   status: "bootstrapping" | "anonymous" | "authed" | "error";
   error: string | null;
   tenantOverride: string | null;
-  login: (userId: string) => Promise<void>;
+  canSwitchTenant: boolean;
+  login: (userId: string, password?: string) => Promise<void>;
   logout: () => void;
   setTenantOverride: (tenantId: string | null) => Promise<void>;
   hasPerm: (resource: string, action: string) => boolean;
@@ -52,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [permissions, setPermissions] = useState<string[]>([]);
   const [tenantOverride, setTenantOverrideState] = useState<string | null>(null);
+  const [canSwitchTenant, setCanSwitchTenant] = useState(false);
   const [status, setStatus] = useState<AuthValue["status"]>("bootstrapping");
   const [error, setError] = useState<string | null>(null);
 
@@ -81,10 +83,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!res.ok) throw new Error(`me failed: ${res.status}`);
         return res.json();
       })
-      .then((me: { user: User; tenant: Tenant; permissions: string[] }) => {
+      .then((me: MeReply) => {
         setUser(me.user);
         setTenant(me.tenant);
         setPermissions(me.permissions);
+        setCanSwitchTenant(me.can_switch_tenant);
         setStatus("authed");
       })
       .catch(() => {
@@ -94,17 +97,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
-  const login = useCallback(async (userId: string) => {
+  const login = useCallback(async (userId: string, password?: string) => {
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId }),
+        body: JSON.stringify(password === undefined ? { user_id: userId } : { user_id: userId, password }),
       });
       if (!res.ok) {
         const msg = await res.text();
-        throw new Error(msg || "Login failed");
+        let detail = msg;
+        try {
+          detail = (JSON.parse(msg) as { detail?: string }).detail ?? msg;
+        } catch {
+          // plain-text error body
+        }
+        throw new Error(detail || "Login failed");
       }
       const reply: LoginReply = await res.json();
       setStoredToken(reply.token);
@@ -112,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(reply.user);
       setTenant(reply.tenant);
       setPermissions(reply.permissions);
+      setCanSwitchTenant(reply.can_switch_tenant);
       setStatus("authed");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Login failed");
@@ -126,6 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setTenant(null);
     setPermissions([]);
+    setCanSwitchTenant(false);
     setStatus("anonymous");
     // Also clear any scenario cache from prior session.
     if (typeof window !== "undefined") {
@@ -148,10 +159,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (tenantId) headers["X-Tenant-Override"] = tenantId;
       const res = await fetch(`${API_BASE}/api/auth/me`, { headers, cache: "no-store" });
       if (res.ok) {
-        const me: { user: User; tenant: Tenant; permissions: string[] } = await res.json();
+        const me: MeReply = await res.json();
         setUser(me.user);
         setTenant(me.tenant);
         setPermissions(me.permissions);
+        setCanSwitchTenant(me.can_switch_tenant);
       }
     },
     [],
@@ -171,12 +183,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status,
       error,
       tenantOverride,
+      canSwitchTenant,
       login,
       logout,
       setTenantOverride,
       hasPerm,
     }),
-    [token, user, tenant, permissions, status, error, tenantOverride, login, logout, setTenantOverride, hasPerm],
+    [token, user, tenant, permissions, status, error, tenantOverride, canSwitchTenant, login, logout, setTenantOverride, hasPerm],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
