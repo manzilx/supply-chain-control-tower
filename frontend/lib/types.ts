@@ -623,7 +623,7 @@ export type AuditAction =
   | "uploaded" | "issued" | "received" | "evaluated" | "compared"
   | "awarded" | "po_drafted" | "submitted_to_sap" | "sap_status_changed"
   | "stage_advanced" | "gr_posted" | "ir_posted" | "delivered"
-  | "approved" | "rejected" | "exported" | "ai_generated";
+  | "approved" | "rejected" | "commit_failed" | "exported" | "ai_generated";
 
 export type AuditSource = "ui" | "api" | "sap_webhook" | "ai" | "scheduled_job" | "csv_upload" | "system";
 
@@ -1344,15 +1344,21 @@ export type LoginReply = {
   user: User;
   tenant: Tenant;
   permissions: string[];
+  can_switch_tenant: boolean;
 };
 
 export type MeReply = {
   user: User;
   tenant: Tenant;
   permissions: string[];
+  can_switch_tenant: boolean;
 };
 
-export type ApprovalStatus = "pending" | "approved" | "rejected" | "auto_approved";
+export type AuthModeReply = {
+  demo_login: boolean;
+};
+
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "auto_approved" | "failed";
 export type ApprovalKind =
   | "po_create"
   | "award_single_source"

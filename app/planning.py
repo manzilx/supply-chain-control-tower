@@ -16,6 +16,7 @@ from ._cache import invalidates_cache
 
 import csv
 import io
+import math
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Dict, List, Optional, Tuple
@@ -43,6 +44,9 @@ LONG_LEAD_THRESHOLD_DAYS = 90
 _projects: Dict[str, Project] = {}
 _documents: Dict[str, Document] = {}
 _bom_items: Dict[str, Dict[str, BOMItem]] = defaultdict(dict)  # project_id -> item_id -> item
+# Set by persistence when projects.json failed to load: never seed demo
+# projects into that gap (the next snapshot would write them over real data).
+_restore_failed = False
 
 
 def _today() -> date:
@@ -50,6 +54,8 @@ def _today() -> date:
 
 
 def _seed() -> None:
+    if _restore_failed:
+        return
     if _projects:
         # Snapshot may pre-date Hydro being part of the cold seed (upgrade
         # path) — top it up idempotently and return.
@@ -839,6 +845,24 @@ def upload_bom_csv(
             qty = float(qty_raw)
         except ValueError:
             errors.append(f"row {idx}: quantity '{qty_raw}' is not a number")
+            continue
+        if not math.isfinite(qty) or qty <= 0:
+            errors.append(f"row {idx}: quantity must be a positive number (got '{qty_raw}')")
+            continue
+        bad_numbers = []
+        for key in ("unit_cost_usd", "long_lead_days"):
+            raw_value = (row.get(key) or "").strip()
+            if not raw_value:
+                continue
+            try:
+                number = float(raw_value)
+            except ValueError:
+                number = float("nan")
+            if not math.isfinite(number) or number < 0:
+                bad_numbers.append(f"{key} '{raw_value}' must be a number ≥ 0")
+        if bad_numbers:
+            # Reject the row rather than silently storing it with a blank cost.
+            errors.append(f"row {idx}: " + "; ".join(bad_numbers))
             continue
 
         def opt_int(key: str) -> Optional[int]:

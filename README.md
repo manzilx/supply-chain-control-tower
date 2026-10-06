@@ -48,6 +48,19 @@ Every tenant also gets ~38 scored vendors, a 23–25 line expediting queue, 7–
 
 Walkthrough for presenters: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
 
+## Signing in
+
+`make demo` sets `DEMO_LOGIN=1`, which keeps the passwordless persona picker above. **Any other deployment requires passwords** — leave `DEMO_LOGIN` unset and:
+
+1. Set `JWT_SECRET` (`openssl rand -hex 32`). The backend refuses to start without it when passwords are on.
+2. Give each person a password from a shell on the server (min 12 chars; stored hashed in `STATE_DIR/credentials.json`, mode 0600):
+   ```bash
+   python -m app.credentials northwind-head-01
+   ```
+3. They sign in on `/login` with their email (or user ID) and password. Five wrong passwords lock that login for 5 minutes.
+
+Switching between tenants is limited to user IDs listed in `PLATFORM_ADMINS` (comma-separated); a tenant's own admin stays in their tenant. In demo mode every admin can still switch.
+
 ## AI
 
 Every AI feature routes through **DeepSeek** (`deepseek-v4-flash`) when `DEEPSEEK_API_KEY` is set. If the key is missing or a call fails, the app uses deterministic templates. Each response carries `source: "deepseek" | "deterministic"`.

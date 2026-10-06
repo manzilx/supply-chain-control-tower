@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import contextvars
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from pydantic import ValidationError
 
 from .schemas import User, SupplierRecord
 
@@ -323,7 +325,15 @@ def _tool_propose_vendor_onboarding(args: dict) -> Any:
 
     from .approvals import gate_vendor
 
-    supplier = SupplierRecord(
+    try:
+        supplier = _proposed_supplier(name, args)
+    except (ValidationError, ValueError, TypeError) as e:
+        return {"error": f"Vendor details are invalid: {e}"}
+    return gate_vendor(supplier, user)
+
+
+def _proposed_supplier(name: str, args: dict) -> SupplierRecord:
+    return SupplierRecord(
         name=name,
         category=args.get("category") or "General supplies",
         country=args.get("country") or "Norway",
@@ -334,7 +344,6 @@ def _tool_propose_vendor_onboarding(args: dict) -> Any:
         approved_alternatives=int(args.get("approved_alternatives", 1)),
         risk_flags=args.get("risk_flags") or ["new supplier"],
     )
-    return gate_vendor(supplier, user)
 
 
 def _summarize_propose_vendor(result: Any) -> str:
@@ -641,11 +650,60 @@ TOOLS: Dict[str, Tool] = {
 }
 
 
+# Permission each tool needs, checked against the signed-in user's role the
+# same way the REST routes are — chat must not be a side door around RBAC.
+TOOL_PERMS: Dict[str, Tuple[str, str]] = {
+    "build_weekly_plan": ("plan", "read"),
+    "get_top_risks": ("risk", "read"),
+    "get_expedite_queue": ("po", "read"),
+    "predict_slip": ("po", "read"),
+    "draft_followup_email": ("followup", "create"),
+    "get_vendor_scorecard": ("vendor", "read"),
+    "list_vendors": ("vendor", "read"),
+    "get_category_concentration": ("vendor", "read"),
+    "get_commercial_summary": ("commercial", "read"),
+    "get_logistics_queue": ("shipment", "read"),
+    "recommend_mode": ("shipment", "read"),
+    "get_procurement_plan": ("bom", "read"),
+    "project_process_map": ("plan", "read"),
+    "list_projects": ("project", "read"),
+    "get_open_rfqs": ("rfq", "read"),
+    "get_open_prs": ("pr", "read"),
+    "run_simulation": ("simulation", "read"),
+    "get_pending_approvals": ("approval", "read"),
+    "get_grn_queue": ("grn", "read"),
+    "propose_vendor_onboarding": ("vendor", "create"),
+}
+assert set(TOOL_PERMS) == set(TOOLS), "every agent tool must declare a permission"
+
+
+def user_can_use(name: str, user: Optional[User]) -> bool:
+    from .auth import has_perm
+
+    if user is None or name not in TOOL_PERMS:
+        return False
+    resource, action = TOOL_PERMS[name]
+    return has_perm(user.role, resource, action)
+
+
+def tools_for(user: Optional[User]) -> List[Tool]:
+    return [t for name, t in TOOLS.items() if user_can_use(name, user)]
+
+
 def invoke(name: str, args: Optional[dict] = None) -> ToolCallRecord:
-    """Run a tool and return a transparent call record. Unknown tools raise."""
+    """Run a tool and return a transparent call record. Unknown tools raise;
+    tools the current user's role can't use return a denial record."""
     args = args or {}
     if name not in TOOLS:
         raise ValueError(f"Unknown tool: {name}")
     tool = TOOLS[name]
+    if not user_can_use(name, get_tool_user()):
+        resource, action = TOOL_PERMS[name]
+        return ToolCallRecord(
+            tool=name,
+            input=args,
+            output_summary=f"Permission denied: your role can't use {name} ({resource}:{action}).",
+            output_preview={"error": "permission_denied"},
+        )
     result = tool.run(args)
     return _record(tool, args, result)

@@ -36,6 +36,10 @@ if [[ -f "$ROOT/.env" ]]; then
   set +a
 fi
 
+# Local demo: keep the passwordless persona picker unless .env says otherwise.
+# Real deployments leave DEMO_LOGIN unset and sign in with passwords.
+export DEMO_LOGIN="${DEMO_LOGIN:-1}"
+
 # ---------------------------------------------------------------- helpers ----
 
 c_grn() { printf "\033[32m%s\033[0m" "$1"; }
@@ -99,10 +103,11 @@ reset_state() {
   # The backend restores its last snapshot from .data/ on boot. Seeding on top
   # of a restored snapshot duplicates every PR/RFQ/PO, so a full boot starts
   # from a clean slate — except the DeepSeek key pasted on the Integrations
-  # page (.data/deepseek.key), which is configuration, not demo data.
+  # page (.data/deepseek.key) and password hashes (.data/credentials.json),
+  # which are configuration, not demo data.
   if [[ -d "$ROOT/.data" ]]; then
     step "resetting demo state (.data/)"
-    find "$ROOT/.data" -mindepth 1 -maxdepth 1 ! -name deepseek.key -exec rm -rf {} +
+    find "$ROOT/.data" -mindepth 1 -maxdepth 1 ! -name deepseek.key ! -name credentials.json -exec rm -rf {} +
   fi
 }
 

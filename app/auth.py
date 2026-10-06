@@ -28,17 +28,35 @@ def _is_production_env() -> bool:
     return os.getenv("APP_ENV", "dev").lower() in ("prod", "production")
 
 
+def demo_login_enabled() -> bool:
+    """DEMO_LOGIN=1 keeps the passwordless persona picker (local demos and
+    tests). Anything else requires a password — the safe default for any
+    deployment that forgets to set it."""
+    return os.getenv("DEMO_LOGIN", "").strip().lower() in ("1", "true", "yes")
+
+
 def validate_jwt_secret_for_production() -> None:
-    """Fail fast when prod runs with a missing or default JWT secret."""
-    if not _is_production_env():
+    """Fail fast when prod — or any password-protected deploy — runs with a
+    missing or default JWT secret (anyone could forge a token)."""
+    if not _is_production_env() and demo_login_enabled():
         return
     raw = os.getenv("JWT_SECRET")
     if not raw or not raw.strip() or raw == _DEFAULT_SECRET:
         raise RuntimeError(
-            "JWT_SECRET must be set to a long random value in production "
-            f"(APP_ENV={os.getenv('APP_ENV')}). "
+            "JWT_SECRET must be set to a long random value in production or "
+            f"whenever DEMO_LOGIN is off (APP_ENV={os.getenv('APP_ENV')}). "
             "Generate one with: openssl rand -hex 32"
         )
+
+
+def can_switch_tenant(user: User) -> bool:
+    """Cross-tenant switching is a platform-operator power, not a tenant-admin
+    one: only user_ids listed in PLATFORM_ADMINS get it. In demo-login mode
+    every admin keeps it so the presenter can hop between demo tenants."""
+    platform_admins = {u.strip() for u in os.getenv("PLATFORM_ADMINS", "").split(",") if u.strip()}
+    if user.user_id in platform_admins:
+        return True
+    return demo_login_enabled() and user.role == "admin"
 
 
 SECRET: str = os.getenv("JWT_SECRET", _DEFAULT_SECRET)
@@ -171,9 +189,14 @@ def current_user(
     user = get_user(user_id) if user_id else None
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown user")
-    # Admins can override tenant scope with a header — used by the admin tenant
-    # switcher without re-issuing a token. Non-admins ignore the header.
-    if x_tenant_override and user.role == "admin":
+    # Platform admins can override tenant scope with a header — used by the
+    # tenant switcher without re-issuing a token.
+    if x_tenant_override and x_tenant_override != user.tenant_id:
+        if not can_switch_tenant(user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Switching tenants requires a platform admin",
+            )
         target = get_tenant(x_tenant_override)
         if target is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown tenant")

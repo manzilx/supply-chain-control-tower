@@ -1,21 +1,26 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
 import os
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response, UploadFile
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from .auth import (
+    can_switch_tenant,
     current_user,
+    demo_login_enabled,
     issue_token,
     permissions_for,
     require_perm,
     require_role,
 )
-from .tenants import get_tenant, get_user, list_personas, list_tenants
+from .tenants import find_user, get_tenant, get_user, list_personas, list_tenants
 from .ai_assist import generate_ai_brief
 from .analytics import analyze_supply_chain
 from .planning import (
@@ -61,6 +66,7 @@ from .schemas import (
     ExpediteQueue,
     FollowupEmail,
     LogFollowupRequest,
+    AuthModeReply,
     LoginReply,
     LoginRequest,
     LogisticsQueue,
@@ -196,6 +202,15 @@ app = FastAPI(
 )
 
 
+@app.exception_handler(RequestValidationError)
+async def _validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Same 422 shape as FastAPI's default, minus the echoed `input`: echoing
+    a NaN/Infinity the client sent crashes the JSON encoder and turns a clean
+    422 into a 500."""
+    detail = [{k: e[k] for k in ("type", "loc", "msg") if k in e} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": detail})
+
+
 @app.middleware("http")
 async def _timing_middleware(request, call_next):
     """Stamp every response with server processing time (ms) — makes perf
@@ -284,18 +299,48 @@ async def api_snapshot() -> dict[str, Any]:
 # --- M7: Auth ---------------------------------------------------------------
 
 
+@app.get("/api/auth/mode", response_model=AuthModeReply)
+async def api_auth_mode() -> AuthModeReply:
+    """Tells the login page whether to show the persona picker or a
+    password form."""
+
+    return AuthModeReply(demo_login=demo_login_enabled())
+
+
 @app.get("/api/auth/personas", response_model=list[Persona])
 async def api_list_personas() -> list[Persona]:
-    """Public list of seeded users for the login persona picker."""
+    """Public list of seeded users for the demo persona picker. Hidden when
+    passwords are required — it would hand out every user_id."""
 
+    if not demo_login_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
     return list_personas()
 
 
 @app.post("/api/auth/login", response_model=LoginReply)
-async def api_login(request: LoginRequest) -> LoginReply:
-    user = get_user(request.user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="Unknown user")
+async def api_login(request: LoginRequest, http: Request) -> LoginReply:
+    if demo_login_enabled():
+        user = get_user(request.user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="Unknown user")
+    else:
+        from . import credentials
+
+        login_key = request.user_id.strip().lower()
+        ip = http.client.host if http.client else "?"
+        if credentials.locked_out(login_key, ip):
+            raise HTTPException(
+                status_code=429,
+                detail="Too many failed sign-ins. Try again in a few minutes.",
+            )
+        user = find_user(request.user_id)
+        ok = await asyncio.to_thread(
+            credentials.verify_password, user.user_id if user else None, request.password or ""
+        )
+        if not ok or user is None:
+            credentials.record_failure(login_key, ip)
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        credentials.record_success(login_key, ip)
     tenant = get_tenant(user.tenant_id)
     if not tenant:
         raise HTTPException(status_code=500, detail="User's tenant is missing")
@@ -304,6 +349,7 @@ async def api_login(request: LoginRequest) -> LoginReply:
         user=user,
         tenant=tenant,
         permissions=permissions_for(user.role),
+        can_switch_tenant=can_switch_tenant(user),
     )
 
 
@@ -312,15 +358,18 @@ async def api_me(user: Annotated[User, Depends(current_user)]) -> MeReply:
     tenant = get_tenant(user.tenant_id)
     if not tenant:
         raise HTTPException(status_code=500, detail="Tenant missing")
-    return MeReply(user=user, tenant=tenant, permissions=permissions_for(user.role))
+    return MeReply(
+        user=user,
+        tenant=tenant,
+        permissions=permissions_for(user.role),
+        can_switch_tenant=can_switch_tenant(user),
+    )
 
 
-@app.get(
-    "/api/tenants",
-    response_model=list[Tenant],
-    dependencies=[Depends(require_role("admin"))],
-)
-async def api_list_tenants() -> list[Tenant]:
+@app.get("/api/tenants", response_model=list[Tenant])
+async def api_list_tenants(user: Annotated[User, Depends(current_user)]) -> list[Tenant]:
+    if not can_switch_tenant(user):
+        raise HTTPException(status_code=403, detail="Listing tenants requires a platform admin")
     return list_tenants()
 
 
@@ -484,6 +533,8 @@ async def api_upload_bom(
     if not get_project(project_id, tenant_id=user.tenant_id):
         raise HTTPException(status_code=404, detail="Project not found")
     raw = await file.read()
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (10 MB max)")
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -633,9 +684,15 @@ async def api_award_rfq(
     user: Annotated[User, Depends(require_perm("award", "create"))],
 ) -> GatedAwardReply:
     from .approvals import gate_award
+    from .sourcing import AlreadyAwardedError
     if not get_rfq(rfq_no, tenant_id=user.tenant_id):
         raise HTTPException(status_code=404, detail="RFQ not found")
-    reply = gate_award(rfq_no, request, user)
+    # The audit actor comes from the signed-in user, never the request body.
+    request = request.model_copy(update={"awarded_by": user.display_name})
+    try:
+        reply = gate_award(rfq_no, request, user)
+    except AlreadyAwardedError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     if reply.status == "applied" and reply.award is None:
         raise HTTPException(status_code=404, detail="RFQ or quote not found")
     return reply

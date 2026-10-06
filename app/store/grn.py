@@ -67,13 +67,40 @@ def _store_name(tenant_id: str, store_id: str) -> Optional[str]:
 # --- Create from field sync --------------------------------------------------
 
 
+MAX_PHOTO_BYTES = 15 * 1024 * 1024
+
+# Leading bytes → file extension. Anything else is not a challan photo.
+_IMAGE_SIGNATURES = (
+    (b"\xff\xd8\xff", "jpg"),
+    (b"\x89PNG\r\n\x1a\n", "png"),
+)
+PHOTO_MEDIA_TYPES = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+
+
+def photo_extension(data: bytes) -> Optional[str]:
+    for magic, ext in _IMAGE_SIGNATURES:
+        if data.startswith(magic):
+            return ext
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
 def create_from_sync(device: DeviceContext, record: FieldGrnRecord, photo_bytes: bytes) -> GrnSyncReply:
+    if len(photo_bytes) > MAX_PHOTO_BYTES:
+        raise HTTPException(status_code=413, detail="Photo too large (15 MB max)")
+    ext = photo_extension(photo_bytes)
+    if ext is None:
+        raise HTTPException(status_code=415, detail="Photo must be a JPEG, PNG or WebP image")
     digest = hashlib.sha256(photo_bytes).hexdigest()
     if digest != record.photo_sha256:
         raise HTTPException(status_code=422, detail="Photo checksum mismatch")
 
     photo_dir = MEDIA_DIR / device.tenant_id
-    photo_path = photo_dir / f"{record.grn_id}.jpg"
+    photo_path = photo_dir / f"{record.grn_id}.{ext}"
+    # grn_id is pattern-checked on the model; this is the belt to those braces.
+    if not photo_path.resolve().is_relative_to(MEDIA_DIR.resolve()):
+        raise HTTPException(status_code=422, detail="Invalid GRN id")
 
     from .. import llm
 

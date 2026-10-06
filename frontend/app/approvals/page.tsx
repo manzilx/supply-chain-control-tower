@@ -26,6 +26,7 @@ const STATUS_TONE: Record<ApprovalStatus, string> = {
   approved: "severity-low",
   rejected: "severity-critical",
   auto_approved: "severity-low",
+  failed: "severity-critical",
 };
 
 function resultLink(a: Approval): { label: string; href: string } | undefined {
@@ -65,7 +66,9 @@ export default function ApprovalsPage() {
     try {
       const fn = approve ? approveApproval : rejectApproval;
       const result = await fn(a.approval_id, { note: notes[a.approval_id] || undefined });
-      if (approve) {
+      if (approve && result.status === "failed") {
+        toast.error(`Approved, but nothing was applied — ${result.decision_note ?? "commit failed"}`);
+      } else if (approve) {
         const link = resultLink(result);
         const msg = result.result_ref
           ? a.kind === "vendor_onboarding"
@@ -97,7 +100,7 @@ export default function ApprovalsPage() {
       />
 
       <div className="flex flex-wrap gap-2">
-        {(["pending", "approved", "rejected", "auto_approved", "all"] as const).map((f) => (
+        {(["pending", "approved", "rejected", "auto_approved", "failed", "all"] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}

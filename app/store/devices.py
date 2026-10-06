@@ -111,9 +111,13 @@ def enrol_device(req: EnrolDeviceRequest) -> EnrolDeviceReply:
         now = _iso(_now())
 
         existing = conn.execute(
-            "SELECT last_sequence_no FROM capture_devices WHERE device_id = ?",
+            "SELECT last_sequence_no, tenant_id FROM capture_devices WHERE device_id = ?",
             (req.device_id,),
         ).fetchone()
+        if existing is not None and existing["tenant_id"] != invite["tenant_id"]:
+            # device_id is client-chosen; never let one tenant's invite take
+            # over (and lock out) another tenant's enrolled device.
+            raise HTTPException(status_code=409, detail="Device ID already enrolled elsewhere")
 
         if existing is None:
             last_sequence_no = 0
