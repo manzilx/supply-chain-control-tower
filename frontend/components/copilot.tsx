@@ -9,6 +9,13 @@ import type { AiStatus, ChatReply, ChatTurn } from "@/lib/types";
 
 // Page-aware starter prompts.
 function suggestionsFor(path: string): string[] {
+  if (path.startsWith("/store") || path.startsWith("/inventory")) {
+    return [
+      "Which GRNs still need a PO match?",
+      "Summarise the site-store receipt queue",
+      "Any unmatched challans I should triage?",
+    ];
+  }
   if (path.startsWith("/projects")) {
     return [
       "Which projects are most behind schedule?",

@@ -28,7 +28,7 @@ const TONE_COLOR: Record<KpiSnapshot["tone"], string> = {
   neutral: "text-ink",
 };
 
-const ENTITY_PREFIXES = ["vendor:", "project:", "category:", "RFQ-", "PR-", "SPO-", "PO-"] as const;
+const ENTITY_PREFIXES = ["vendor:", "project:", "category:", "approval:", "grn:", "RFQ-", "PR-", "SPO-", "PO-"] as const;
 
 function isEntityRef(ref: string): boolean {
   return ENTITY_PREFIXES.some((prefix) => ref.startsWith(prefix));
@@ -47,6 +47,12 @@ function refHref(ref: string, refs: string[]): string | null {
   }
   if (ref.startsWith("project:")) {
     return `/projects/${ref.split(":", 2)[1]}`;
+  }
+  if (ref.startsWith("approval:")) {
+    return "/approvals";
+  }
+  if (ref.startsWith("grn:")) {
+    return "/store/grn-triage";
   }
   if (ref.startsWith("category:")) {
     return null;

@@ -527,6 +527,22 @@ export async function streamChat(
 export function fetchAiStatus(): Promise<AiStatus> {
   return getJson<AiStatus>("/api/ai/status");
 }
+export function saveDeepSeekKey(apiKey: string): Promise<{
+  ok: boolean;
+  enabled: boolean;
+  key_hint: string;
+  configured_via: string;
+}> {
+  return postJson("/api/ai/key", { api_key: apiKey });
+}
+export function clearDeepSeekKey(): Promise<{
+  ok: boolean;
+  enabled: boolean;
+  key_hint: string | null;
+  configured_via: string | null;
+}> {
+  return request("/api/ai/key", { method: "DELETE" });
+}
 
 // --- Ingestion engine -------------------------------------------------------
 

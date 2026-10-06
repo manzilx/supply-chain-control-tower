@@ -578,7 +578,7 @@ export type TechnicalEvaluation = {
   disqualified: boolean;
   disqualification_reason?: string | null;
   notes: string;
-  source: "manual" | "grok" | "deepseek" | "deterministic";
+  source: "manual" | "deepseek" | "deterministic";
   evaluated_by: string;
   evaluated_at: string;
 };
@@ -1220,6 +1220,9 @@ export type AiStatus = {
   provider: string;
   model?: string | null;
   base_url?: string | null;
+  vision?: boolean;
+  key_hint?: string | null;
+  configured_via?: "runtime" | "env" | null;
   stats: {
     calls: number;
     errors: number;
@@ -1263,7 +1266,7 @@ export type RiskMitigationsReply = {
   generated_at: string;
 };
 
-export type ExplainKind = "po" | "vendor" | "risk" | "project" | "rfq" | "pr";
+export type ExplainKind = "po" | "vendor" | "risk" | "project" | "rfq" | "pr" | "grn";
 
 export type ExplainReply = {
   kind: string;

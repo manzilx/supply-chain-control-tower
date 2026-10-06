@@ -101,12 +101,22 @@ Every domain object carries `tenant_id`; cross-tenant reads return 404; cross-te
 
 ## 6. Next / known gaps
 
+### How AI is incorporated (do not re-litigate)
+
+DeepSeek (`deepseek-v4-flash`) is the only LLM. Every AI surface already in the product — agent tool-calling, overview brief, risk mitigations, vendor briefing, simulate brief/parse, weekly-plan narrative, award rationale, TBE, follow-up emails, BOM autofill, spec request, ingest column mapping, explain — goes through `app/llm.py`. Missing key or HTTP failure → deterministic template. `source` is `"deepseek"` or `"deterministic"`. `XAI_API_KEY` is ignored.
+
+**Do not:** turn on `DEEPSEEK_VISION` against flash (image parts 400); put an LLM in `app/store/matching.py` (wrong PO match posts stock); add a second provider. Callers use `llm_chat` / `llm_json` / `vision_json` in `app/llm.py` — there is no Grok/xAI path.
+
+**Do:** give the agent tools over every live queue so it cannot hallucinate empty modules. Approvals and site-store GRNs were the remaining holes — `get_pending_approvals` and `get_grn_queue` are read-only, tenant-scoped, and the weekly plan now raises P1s from those queues so the synthesis narrative can see them. Explain works on a GRN without ever auto-matching.
+
+### Other gaps
+
 - **Deploy the 5 pending hardening cycles** once Fly auth is restored (`fly auth login`).
 - **Vendor onboarding** is wired: `gate_vendor` on `POST /api/vendors`, AI tool `propose_vendor_onboarding`, and `POST /api/ai/propose-vendor` (buyer propose → head approve → vendor + audit).
 - **Write-through** flushes critical stores (approvals, audit, vendors, sourcing) on mutation; `restore_all()` on startup.
 - **Agent tools** are tenant-scoped via the chat request user (`get_tool_user()`).
 - Move cache invalidation to commit-end with try/finally already done (cycle 1); consider a shared store (Redis/SQLite) before scaling beyond one worker.
-- M8 candidates: ERP/P6 connectors, contract parsing, WhatsApp outbound, real auth (SSO), approval chains, per-row ACLs, encryption at rest.
+- M8 candidates: ERP/P6 connectors, contract parsing, WhatsApp outbound, real auth (SSO), approval chains, per-row ACLs, encryption at rest. Contract parsing is the next *AI* candidate — only after a document store exists; do not bolt PDF vision onto GRN flash.
 
 ---
 

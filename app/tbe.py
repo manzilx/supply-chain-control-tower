@@ -392,11 +392,11 @@ def build_tbe(rfq_no: str) -> TBE:
 def auto_evaluate(rfq_no: str) -> List[TechnicalEvaluation]:
     """For each quote on this RFQ, generate technical scores per criterion.
 
-    Tries Grok first (source='grok'); falls back to deterministic heuristics
+    Tries DeepSeek first (source='deepseek'); falls back to deterministic heuristics
     (source='deterministic') that use vendor scorecard + quote notes as proxies.
     """
 
-    from .llm import grok_json, is_enabled, llm_source
+    from .llm import llm_json, is_enabled, llm_source
     from .sourcing import get_quotes, get_rfq
     from .vendor_intel import get_vendor_scorecard
 
@@ -456,7 +456,7 @@ def auto_evaluate(rfq_no: str) -> List[TechnicalEvaluation]:
                 "\"deviation_text\": optional string}]}"
             )
             user = "Evaluate this quote:\n" + _json.dumps(ctx, default=str, indent=2)
-            parsed = grok_json(system, user, max_tokens=900)
+            parsed = llm_json(system, user, max_tokens=900)
             if parsed and isinstance(parsed.get("scores"), list):
                 scores = []
                 for s in parsed["scores"]:

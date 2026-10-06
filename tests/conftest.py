@@ -25,6 +25,15 @@ HEAD_ID = f"{TENANT}-head-01"
 ADMIN_ID = f"{TENANT}-admin-01"
 
 
+@pytest.fixture(autouse=True)
+def _clear_in_app_deepseek_key() -> Generator[None, None, None]:
+    from app.llm import clear_api_key
+
+    clear_api_key()
+    yield
+    clear_api_key()
+
+
 def headers_for_user(user_id: str) -> dict[str, str]:
     user = get_user(user_id)
     assert user is not None, f"unknown test user {user_id}"
@@ -34,11 +43,13 @@ def headers_for_user(user_id: str) -> dict[str, str]:
 @pytest.fixture()
 def client() -> Generator[TestClient, None, None]:
     from app import approvals, vendor_store, risk_register
+    from app.llm import clear_api_key
 
     vendor_store._runtime.clear()
     approvals._approvals.clear()
     approvals._counter["approval"] = 0
     risk_register.reset()
+    clear_api_key()
 
     with TestClient(app) as c:
         yield c
@@ -47,6 +58,7 @@ def client() -> Generator[TestClient, None, None]:
     approvals._approvals.clear()
     approvals._counter["approval"] = 0
     risk_register.reset()
+    clear_api_key()
 
 
 @pytest.fixture()

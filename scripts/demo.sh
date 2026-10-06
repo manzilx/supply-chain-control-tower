@@ -98,10 +98,11 @@ cleanup() {
 reset_state() {
   # The backend restores its last snapshot from .data/ on boot. Seeding on top
   # of a restored snapshot duplicates every PR/RFQ/PO, so a full boot starts
-  # from a clean slate.
+  # from a clean slate — except the DeepSeek key pasted on the Integrations
+  # page (.data/deepseek.key), which is configuration, not demo data.
   if [[ -d "$ROOT/.data" ]]; then
     step "resetting demo state (.data/)"
-    rm -rf "$ROOT/.data"
+    find "$ROOT/.data" -mindepth 1 -maxdepth 1 ! -name deepseek.key -exec rm -rf {} +
   fi
 }
 
