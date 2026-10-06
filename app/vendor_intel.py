@@ -205,6 +205,16 @@ def _composite(components: List[ScorecardComponent]) -> int:
     return _clamp(total)
 
 
+UNVERIFIED_SCORE_CAP = 50
+
+
+def _score(s: SupplierRecord, components: List[ScorecardComponent]) -> int:
+    """Composite score, capped for vendors whose metrics are placeholders so
+    they can't outrank vendors with a real track record."""
+    score = _composite(components)
+    return score if s.performance_verified else min(score, UNVERIFIED_SCORE_CAP)
+
+
 # --- Public helpers ----------------------------------------------------------
 
 
@@ -253,8 +263,10 @@ def _alternates_for(
             continue
         if peer.category.lower() != target.category.lower():
             continue
+        if not peer.performance_verified:
+            continue  # recommending a switch needs real performance data
         components = _build_components(peer, spend_by_category)
-        score = _composite(components)
+        score = _score(peer, components)
         reason_parts: List[str] = []
         if peer.on_time_delivery_pct > target.on_time_delivery_pct:
             reason_parts.append(f"{peer.on_time_delivery_pct:.0f}% OTD vs {target.on_time_delivery_pct:.0f}%")
@@ -298,7 +310,7 @@ def list_vendor_summaries(tenant_id: Optional[str] = None) -> List[VendorSummary
     summaries: List[VendorSummary] = []
     for s in suppliers:
         components = _build_components(s, spend_by_category)
-        score = _composite(components)
+        score = _score(s, components)
         summaries.append(
             VendorSummary(
                 vendor=s.name,
@@ -327,7 +339,7 @@ def get_vendor_scorecard(
     suppliers = _suppliers(tenant_id=tenant_id)
     spend_by_category = _category_spend_map(suppliers)
     components = _build_components(supplier, spend_by_category)
-    score = _composite(components)
+    score = _score(supplier, components)
     category_total = spend_by_category.get(supplier.category, 0) or 1
     concentration = supplier.annual_spend_usd / category_total * 100
 

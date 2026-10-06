@@ -171,12 +171,14 @@ Already documented above. Don't expose this to the internet — no TLS, no CORS 
 
 | Concern | How it's handled |
 |---|---|
-| **State persistence** | Every in-memory store snapshots to JSON every 120 s (configurable via `SNAPSHOT_INTERVAL_SECONDS`). On boot, the FastAPI startup hook restores the latest snapshot from `STATE_DIR` (default `/data`). Survives restarts. Manual snapshot: `POST /api/admin/snapshot`. |
+| **State persistence** | Every in-memory store snapshots to JSON every 120 s (configurable via `SNAPSHOT_INTERVAL_SECONDS`); approvals, audit, vendors and sourcing also write through on every change. Writes are atomic. On boot the latest snapshot is restored from `STATE_DIR` (default `/data`) store by store — a damaged file or record is skipped and copied aside as `<file>.corrupt-<time>` (see `/api/health` → `snapshot.last_restore`). Manual snapshot: `POST /api/admin/snapshot`. |
 | **CORS** | `ALLOWED_ORIGINS` env (comma-separated) + optional `ALLOWED_ORIGIN_REGEX`. Dev mode defaults to any-localhost. Prod mode (`APP_ENV=prod`) requires explicit allowlist. |
 | **TLS** | Caddy auto-issues Let's Encrypt for non-localhost `HOSTNAME` (path A). Fly terminates TLS at the edge (path B). |
 | **Health probes** | `/healthz` (liveness) and `/readyz` (readiness, includes snapshot status). Both registered for Docker, K8s, Fly. |
 | **Process model** | Backend: uvicorn with `UVICORN_WORKERS=1` (state is process-local in-memory; do not scale workers without moving state to a shared store first). Frontend: Next.js standalone output (`next start` via `server.js`). Both run as non-root user `app` (uid 1000). |
 | **Secrets** | `JWT_SECRET` (mandatory in prod — backend refuses the dev default), `DEEPSEEK_API_KEY`, SAP CPI vars. `.env.production` (gitignored) for Compose; `fly secrets set` for Fly. Never bake into images. |
+| **SAP inbound webhook** | `POST /api/integrations/sap/event` needs `X-CPI-Token` = `SAP_WEBHOOK_TOKEN`; with no token set it only works in demo mode (otherwise 503). Send `event_id` as document + year + item (e.g. `5000001234-2026-0001`) so CPI retries apply once; replays are ignored, reversals (negative GR qty) are accepted, over-receipts are recorded and flagged. |
+| **Audit log** | Bounded per tenant (10,000 events each), so one busy tenant can't evict another's history. |
 | **Logs** | Both services write to stdout/stderr (12-factor). Caddy + nginx + supervisord all log to stdout. |
 | **Restart policy** | `restart: unless-stopped` (Compose), `auto_restart` (supervisord), Fly's machine restart on health failure. |
 

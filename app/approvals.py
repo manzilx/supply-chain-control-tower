@@ -224,7 +224,31 @@ def decide(
     return approval
 
 
-def _audit_decision(approval: Approval, approver: User) -> None:
+@invalidates_cache
+def retry(tenant_id: str, approval_id: str, user: User) -> Optional[Approval]:
+    """Re-run the commit of an approval that was granted but failed to apply
+    (e.g. a transient error). The original decision and decider stand; only
+    the outcome is updated. Non-failed approvals are returned unchanged."""
+
+    approval = get_approval(tenant_id, approval_id)
+    if approval is None or approval.status != "failed":
+        return approval
+    committer = _committers.get(approval.kind)
+    if committer is None:
+        return approval
+    try:
+        commit_payload = {**approval.payload, "_decided_by": approval.decided_by}
+        approval.result_ref = committer(commit_payload, tenant_id)
+        approval.status = "approved"
+        approval.decision_note = (approval.decision_note or "") + f" | retried by {user.display_name}: applied"
+    except Exception as e:  # noqa: BLE001
+        approval.decision_note = (approval.decision_note or "") + f" | retry by {user.display_name} failed: {e}"
+    _audit_decision(approval, user, retried=True)
+    _flush_critical_safe()
+    return approval
+
+
+def _audit_decision(approval: Approval, approver: User, retried: bool = False) -> None:
     from .audit import emit
 
     action = {"approved": "approved", "rejected": "rejected"}.get(approval.status, "commit_failed")
@@ -244,7 +268,8 @@ def _audit_decision(approval: Approval, approver: User) -> None:
         metadata={
             "kind": approval.kind,
             "requested_by": approval.requested_by,
-            "decided_by": approver.user_id,
+            "decided_by": approval.decided_by,
+            **({"retried_by": approver.user_id} if retried else {}),
         },
     )
 
@@ -393,6 +418,20 @@ def gate_vendor(supplier: SupplierRecord, user: User) -> GatedVendorReply:
     payload = {"supplier": supplier.model_dump(mode="json")}
     title = f"Onboard vendor · {supplier.name}"
     summary = f"{supplier.name} · {supplier.category} · {supplier.country}"
+
+    # A re-submitted vendor (double-click, re-uploaded spreadsheet) joins the
+    # request already waiting rather than stacking a duplicate approval.
+    wanted = supplier.name.strip().lower()
+    already = next(
+        (
+            a for a in _approvals.get(tenant_id, {}).values()
+            if a.status == "pending" and a.kind == kind
+            and str(a.payload.get("supplier", {}).get("name", "")).strip().lower() == wanted
+        ),
+        None,
+    )
+    if already is not None:
+        return GatedVendorReply(status="pending_approval", approval=already)
 
     if _can_self_approve(user):
         vendor_store.add_supplier(tenant_id, supplier)

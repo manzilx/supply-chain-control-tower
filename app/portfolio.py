@@ -151,7 +151,7 @@ def build_portfolio_summary(tenant_id: Optional[str] = None) -> PortfolioSummary
 
     # --- Activity feed (tenant-scoped audit events) ---
     activities: List[PortfolioActivity] = []
-    for ev in reversed(list(_events)):  # newest first
+    for ev in reversed(_events.snapshot(tenant_id)):  # newest first
         if tenant_id is not None and ev.tenant_id != tenant_id:
             continue
         activities.append(

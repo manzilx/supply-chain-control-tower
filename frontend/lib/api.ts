@@ -730,6 +730,9 @@ export function approveApproval(id: string, req: DecideApprovalRequest = {}): Pr
 export function rejectApproval(id: string, req: DecideApprovalRequest = {}): Promise<Approval> {
   return postJson<Approval>(`/api/approvals/${encodeURIComponent(id)}/reject`, req);
 }
+export function retryApproval(id: string): Promise<Approval> {
+  return postJson<Approval>(`/api/approvals/${encodeURIComponent(id)}/retry`, {});
+}
 
 // --- Storemark: Site Store / GRN ---
 

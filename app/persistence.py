@@ -200,6 +200,7 @@ def _snap_sourcing() -> None:
         "pos":            {k: v.model_dump(mode="json") for k, v in sourcing._pos.items()},  # type: ignore[attr-defined]
         "counter":        sourcing._counter,  # type: ignore[attr-defined]
         "seeded":         sourcing._seeded,  # type: ignore[attr-defined]
+        "sap_seen":       sourcing._sap_seen,  # type: ignore[attr-defined]
     }
     _write_json("sourcing.json", payload)
 
@@ -217,6 +218,7 @@ def _restore_sourcing() -> None:
     awards = _valid_map(Award, data.get("awards"), "awards")
     pos = _valid_map(SourcingPO, data.get("pos"), "pos")
     counter = {k: int(v) for k, v in (data.get("counter") or {}).items()}
+    sap_seen = {str(k): str(v) for k, v in (data.get("sap_seen") or {}).items()}
     sourcing._prs.clear()  # type: ignore[attr-defined]
     sourcing._prs.update(prs)  # type: ignore[attr-defined]
     sourcing._rfqs.clear()  # type: ignore[attr-defined]
@@ -228,6 +230,8 @@ def _restore_sourcing() -> None:
     sourcing._pos.clear()  # type: ignore[attr-defined]
     sourcing._pos.update(pos)  # type: ignore[attr-defined]
     sourcing._counter.update(counter)  # type: ignore[attr-defined]
+    sourcing._sap_seen.clear()  # type: ignore[attr-defined]
+    sourcing._sap_seen.update(sap_seen)  # type: ignore[attr-defined]
     sourcing._seeded = bool(data.get("seeded", False))  # type: ignore[attr-defined]
 
 

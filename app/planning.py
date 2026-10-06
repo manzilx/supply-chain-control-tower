@@ -647,14 +647,6 @@ def upsert_project(project: Project) -> Project:
 
 
 @invalidates_cache
-def upsert_bom_item(item: BOMItem) -> BOMItem:
-    """Insert or replace a BOM line (used by the ingest engine)."""
-    _seed()
-    _bom_items[item.project_id][item.bom_item_id] = item
-    return item
-
-
-@invalidates_cache
 def patch_bom_item(
     project_id: str,
     bom_item_id: str,
@@ -828,7 +820,7 @@ def upload_bom_csv(
             bom_items=[],
         )
 
-    accepted: List[BOMItem] = []
+    rows: List[dict] = []
     errors: List[str] = []
     rows_parsed = 0
 
@@ -897,45 +889,37 @@ def upload_bom_csv(
             return v or None
 
         # Optional explicit status — only honored if it matches the BomStatus
-        # literal; otherwise we fall back to the spec-driven default below so
-        # malformed input cannot inject arbitrary status strings.
+        # literal. No status column → None, so the merge applies its
+        # create-only default and never overwrites an existing line's status.
         _VALID_STATUSES = {
             "spec_missing", "planned", "requisitioned", "ordered", "delivered",
         }
         status_in = (opt("status") or "").lower()
-        if status_in in _VALID_STATUSES:
-            status_value = status_in
-        else:
-            status_value = "spec_missing" if not opt("spec_doc_id") else "planned"
-            if opt("status") and status_in not in _VALID_STATUSES:
-                errors.append(
-                    f"row {idx}: unknown status '{opt('status')}' — using "
-                    f"'{status_value}'"
-                )
+        if opt("status") and status_in not in _VALID_STATUSES:
+            errors.append(f"row {idx}: unknown status '{opt('status')}' — ignored")
 
-        item = BOMItem(
-            bom_item_id=opt("bom_item_id") or f"{project_id}-U{idx:04d}",
-            tenant_id=project.tenant_id,
-            project_id=project_id,
-            parent_item_id=opt("parent_item_id"),
-            code=code,
-            description=desc,
-            category=opt("category"),
-            quantity=qty,
-            uom=opt("uom") or "EA",
-            unit_cost_usd=opt_float("unit_cost_usd"),
-            supplier_name=opt("supplier_name"),
-            spec_doc_id=opt("spec_doc_id"),
-            drawing_id=opt("drawing_id"),
-            long_lead_days=opt_int("long_lead_days"),
-            planned_need_date=opt_date("planned_need_date"),
-            milestone_code=opt("milestone_code"),
-            status=status_value,  # type: ignore[arg-type]
-        )
-        accepted.append(item)
+        rows.append({
+            "row": idx,
+            "bom_item_id": opt("bom_item_id"),
+            "parent_item_id": opt("parent_item_id"),
+            "code": code,
+            "description": desc,
+            "category": opt("category"),
+            "quantity": qty,
+            "uom": opt("uom"),
+            "unit_cost_usd": opt_float("unit_cost_usd"),
+            "supplier_name": opt("supplier_name"),
+            "spec_doc_id": opt("spec_doc_id"),
+            "drawing_id": opt("drawing_id"),
+            "long_lead_days": opt_int("long_lead_days"),
+            "planned_need_date": opt_date("planned_need_date"),
+            "milestone_code": opt("milestone_code"),
+            "status": status_in if status_in in _VALID_STATUSES else None,
+        })
 
-    for item in accepted:
-        _bom_items[project_id][item.bom_item_id] = item
+    merged, merge_errors = merge_bom_rows(project, rows)
+    errors.extend(merge_errors)
+    accepted = [item for item, _created in merged]
 
     # Audit
     from .audit import emit
@@ -950,9 +934,9 @@ def upload_bom_csv(
         project_id=project_id,
         metadata={"rows_parsed": rows_parsed, "rows_accepted": len(accepted), "errors_count": len(errors)},
     )
-    for item in accepted:
+    for item, created in merged:
         emit(
-            action="created",
+            action="created" if created else "updated",
             entity_kind="bom_item",
             entity_id=item.bom_item_id,
             subject=f"{item.code}",
@@ -985,6 +969,121 @@ def upload_bom_csv(
         errors=errors,
         bom_items=accepted,
     )
+
+
+# --- BOM line identity ------------------------------------------------------
+
+_STATUS_RANK = {"spec_missing": 0, "planned": 1, "requisitioned": 2, "ordered": 3, "delivered": 4}
+_MERGE_FIELDS = (
+    "parent_item_id", "code", "description", "category", "quantity", "uom",
+    "unit_cost_usd", "supplier_name", "spec_doc_id", "drawing_id",
+    "long_lead_days", "planned_need_date", "milestone_code",
+)
+
+
+def _new_bom_id(project_id: str) -> str:
+    existing = _bom_items[project_id]
+    n = len(existing) + 1
+    while f"{project_id}-L{n:04d}" in existing:
+        n += 1
+    return f"{project_id}-L{n:04d}"
+
+
+def merge_bom_rows(project: Project, rows: List[dict]) -> Tuple[List[Tuple[BOMItem, bool]], List[str]]:
+    """Upsert uploaded BOM rows into a project without clobbering other lines.
+
+    Each row dict carries BOM fields (None = column not supplied), an
+    optional explicit `bom_item_id` and `status`, and `row` (source row
+    number for messages). Matching, in order:
+
+      1. explicit bom_item_id → that line in this project (an id that lives
+         in another project is an error);
+      2. otherwise (parent_item_id, code). When the file and the project hold
+         the same number of lines for that key they pair up in order; any
+         other mismatch is ambiguous and those rows are rejected rather than
+         guessed;
+      3. no match → a new line with a fresh, never-reused id.
+
+    Updates only overwrite fields the file supplied. A file status never
+    moves a line backwards once it is requisitioned/ordered/delivered.
+    Returns ([(item, created)], errors) in file order.
+    """
+
+    _seed()
+    pid = project.project_id
+    lines = _bom_items[pid]
+    errors: List[str] = []
+
+    claimed = {r["bom_item_id"] for r in rows if r.get("bom_item_id") and r["bom_item_id"] in lines}
+    groups: Dict[Tuple[Optional[str], str], List[dict]] = {}
+    for r in rows:
+        if not r.get("bom_item_id"):
+            groups.setdefault((r.get("parent_item_id"), r["code"]), []).append(r)
+
+    target: Dict[int, Optional[BOMItem]] = {}
+    rejected: set = set()
+    for (parent, code), group in groups.items():
+        candidates = [
+            i for i in lines.values()
+            if i.parent_item_id == parent and i.code == code and i.bom_item_id not in claimed
+        ]
+        if not candidates:
+            for r in group:
+                target[id(r)] = None
+        elif len(candidates) == len(group):
+            for r, item in zip(group, candidates):
+                target[id(r)] = item
+        else:
+            for r in group:
+                rejected.add(id(r))
+                errors.append(
+                    f"row {r['row']}: code {code} appears {len(group)}× in the file but "
+                    f"{len(candidates)}× in the project — add a bom_item_id column so each "
+                    "row names the line it updates"
+                )
+
+    out: List[Tuple[BOMItem, bool]] = []
+    for r in rows:
+        if id(r) in rejected:
+            continue
+        explicit_id = r.get("bom_item_id")
+        if explicit_id:
+            elsewhere = next(
+                (p for p, items in _bom_items.items() if p != pid and explicit_id in items), None
+            )
+            if elsewhere is not None:
+                errors.append(f"row {r['row']}: bom_item_id {explicit_id} belongs to project {elsewhere} — skipped")
+                continue
+            existing = lines.get(explicit_id)
+        else:
+            existing = target.get(id(r))
+
+        supplied = {f: r.get(f) for f in _MERGE_FIELDS if r.get(f) is not None}
+        status = r.get("status")
+        if existing is None:
+            item = BOMItem(
+                bom_item_id=explicit_id or _new_bom_id(pid),
+                tenant_id=project.tenant_id,
+                project_id=pid,
+                **supplied,
+                status=status or ("planned" if supplied.get("spec_doc_id") else "spec_missing"),  # type: ignore[arg-type]
+            )
+            lines[item.bom_item_id] = item
+            out.append((item, True))
+            continue
+
+        new_status = existing.status
+        if status and not (
+            _STATUS_RANK[existing.status] >= _STATUS_RANK["requisitioned"]
+            and _STATUS_RANK[status] < _STATUS_RANK[existing.status]
+        ):
+            new_status = status
+        elif not status and existing.status == "spec_missing" and supplied.get("spec_doc_id"):
+            new_status = "planned"
+        item = BOMItem.model_validate({**existing.model_dump(), **supplied, "status": new_status})
+        lines[item.bom_item_id] = item
+        out.append((item, False))
+    return out, errors
 
 
 # --- Procurement plan builder ------------------------------------------------

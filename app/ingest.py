@@ -33,7 +33,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import ValidationError
 
 from .schemas import (
-    BOMItem,
     IngestCommitReply,
     IngestPreviewReply,
     IngestSheetPreview,
@@ -286,8 +285,9 @@ def _validate_rows(entity: str, mapping: Dict[str, int], rows: List[List[Any]]) 
                 errors.append(f"row {idx}: unknown status '{status}' — using default")
                 status = ""
             out.append({
+                "row": idx,
                 "code": code, "description": desc, "quantity": qty,
-                "uom": _cell(raw, mapping, "uom") or "EA",
+                "uom": _cell(raw, mapping, "uom"),
                 "unit_cost_usd": unit_cost,
                 "supplier_name": _cell(raw, mapping, "supplier_name"),
                 "spec_doc_id": spec,
@@ -298,7 +298,9 @@ def _validate_rows(entity: str, mapping: Dict[str, int], rows: List[List[Any]]) 
                 "project_id": _cell(raw, mapping, "project_id"),
                 "bom_item_id": _cell(raw, mapping, "bom_item_id"),
                 "parent_item_id": _cell(raw, mapping, "parent_item_id"),
-                "status": status or ("spec_missing" if not spec else "planned"),
+                # Explicit only; the merge applies the create-time default and
+                # never overwrites an existing line's status with a guess.
+                "status": status or None,
             })
         elif entity == "project":
             pid = _cell(raw, mapping, "project_id")
@@ -306,13 +308,14 @@ def _validate_rows(entity: str, mapping: Dict[str, int], rows: List[List[Any]]) 
             if not pid or not name:
                 errors.append(f"row {idx}: missing project_id/name")
                 continue
+            # Missing columns stay None: an update must not blank them out.
             out.append({
                 "project_id": pid.upper().replace(" ", "-"),
                 "name": name,
-                "client": _cell(raw, mapping, "client") or "—",
-                "site": _cell(raw, mapping, "site") or "—",
-                "sector": _cell(raw, mapping, "sector") or "Industrial EPC",
-                "start_date": _to_date(_cell(raw, mapping, "start_date")) or date.today(),
+                "client": _cell(raw, mapping, "client"),
+                "site": _cell(raw, mapping, "site"),
+                "sector": _cell(raw, mapping, "sector"),
+                "start_date": _to_date(_cell(raw, mapping, "start_date")),
             })
         elif entity == "supplier":
             name = _cell(raw, mapping, "name")
@@ -327,14 +330,25 @@ def _validate_rows(entity: str, mapping: Dict[str, int], rows: List[List[Any]]) 
                 v = conv(_cell(raw, mapping, field))
                 return default if v is None else v  # a real 0 stays 0
 
+            # Without delivery/quality/lead figures the row can't be scored
+            # honestly: keep placeholders but mark it unverified.
+            verified = (
+                _to_int(_cell(raw, mapping, "lead_time_days")) is not None
+                and _to_float(_cell(raw, mapping, "on_time_delivery_pct")) is not None
+                and _to_int(_cell(raw, mapping, "quality_ppm")) is not None
+            )
+            flags = [f.strip() for f in re.split(r"[;,]", flags_raw) if f.strip()]
+            if not verified:
+                flags.append("unverified — no performance history (placeholder metrics)")
             record = {
                 "name": name, "category": cat, "country": country,
-                "lead_time_days": num("lead_time_days", 60, _to_int),
-                "on_time_delivery_pct": num("on_time_delivery_pct", 90.0),
-                "quality_ppm": num("quality_ppm", 500, _to_int),
+                "lead_time_days": num("lead_time_days", 0, _to_int),
+                "on_time_delivery_pct": num("on_time_delivery_pct", 0.0),
+                "quality_ppm": num("quality_ppm", 0, _to_int),
                 "annual_spend_usd": num("annual_spend_usd", 0.0),
                 "approved_alternatives": num("approved_alternatives", 0, _to_int),
-                "risk_flags": [f.strip() for f in re.split(r"[;,]", flags_raw) if f.strip()],
+                "risk_flags": flags,
+                "performance_verified": verified,
             }
             try:
                 SupplierRecord(**record)
@@ -416,8 +430,8 @@ def preview(filename: str, data: bytes, user: User) -> IngestPreviewReply:
 def commit(staging_id: str, user: User, default_project_id: Optional[str] = None) -> IngestCommitReply:
     from ._cache import invalidate_all
     from .audit import emit
-    from .planning import get_project, upsert_bom_item, upsert_project
-    from .vendor_store import add_supplier
+    from .planning import get_project, merge_bom_rows, upsert_project
+    from .approvals import gate_vendor
 
     staged = _STAGING.get(staging_id)
     if staged is None:
@@ -425,7 +439,7 @@ def commit(staging_id: str, user: User, default_project_id: Optional[str] = None
     if staged["tenant_id"] != user.tenant_id:
         raise KeyError("staging_id not found or expired — re-run preview")  # cross-tenant looks identical
 
-    created = {"projects": 0, "bom_items": 0, "suppliers": 0}
+    created = {"projects": 0, "bom_items": 0, "suppliers": 0, "suppliers_pending_approval": 0}
     errors: List[str] = []
     refs: List[str] = []
     tenant = user.tenant_id
@@ -441,19 +455,26 @@ def commit(staging_id: str, user: User, default_project_id: Optional[str] = None
                     f"Project '{row['project_id']}' belongs to another tenant — skipped"
                 )
                 continue
-            project = Project(
-                project_id=row["project_id"], tenant_id=tenant, name=row["name"],
-                client=row["client"], site=row["site"], sector=row["sector"],
-                start_date=row["start_date"],
-                milestones=[Milestone(code="M1", name="Engineering freeze", phase="engineering",
-                                      required_on_site_date=row["start_date"])],
-            )
-            upsert_project(project)
+            if existing is not None:
+                # Update only what the sheet supplied; milestones, client etc.
+                # that the sheet doesn't carry stay as they are.
+                supplied = {k: row[k] for k in ("name", "client", "site", "sector", "start_date") if row.get(k)}
+                upsert_project(existing.model_copy(update=supplied))
+            else:
+                start = row["start_date"] or date.today()
+                upsert_project(Project(
+                    project_id=row["project_id"], tenant_id=tenant, name=row["name"],
+                    client=row["client"] or "—", site=row["site"] or "—",
+                    sector=row["sector"] or "Industrial EPC", start_date=start,
+                    milestones=[Milestone(code="M1", name="Engineering freeze", phase="engineering",
+                                          required_on_site_date=start)],
+                ))
             created["projects"] += 1
             refs.append(row["project_id"])
 
-    # Pass 2: BOM lines
-    seq = 0
+    # Pass 2: BOM lines — grouped per project, then merged so re-imports
+    # update the lines they name instead of overwriting by position.
+    by_project: Dict[str, List[dict]] = {}
     for sheet in staged["sheets"]:
         if sheet["entity"] != "bom":
             continue
@@ -462,34 +483,28 @@ def commit(staging_id: str, user: User, default_project_id: Optional[str] = None
             if not pid:
                 errors.append(f"BOM '{row['code']}': no project_id column and no default project selected — skipped")
                 continue
-            project = get_project(pid, tenant_id=tenant)
-            if project is None:
-                errors.append(f"BOM '{row['code']}': project {pid} not found in your tenant — skipped")
-                continue
-            seq += 1
-            item_id = row.get("bom_item_id") or f"{pid}-ING{seq:04d}"
-            upsert_bom_item(BOMItem(
-                bom_item_id=item_id, tenant_id=tenant, project_id=pid,
-                parent_item_id=row.get("parent_item_id"),
-                code=row["code"], description=row["description"],
-                quantity=row["quantity"], uom=row["uom"],
-                unit_cost_usd=row.get("unit_cost_usd"),
-                supplier_name=row.get("supplier_name"),
-                spec_doc_id=row.get("spec_doc_id"), drawing_id=row.get("drawing_id"),
-                long_lead_days=row.get("long_lead_days"),
-                planned_need_date=row.get("planned_need_date"),
-                milestone_code=row.get("milestone_code"),
-                status=row["status"],
-            ))
-            created["bom_items"] += 1
+            by_project.setdefault(pid, []).append(row)
+    for pid, rows in by_project.items():
+        project = get_project(pid, tenant_id=tenant)
+        if project is None:
+            errors.append(f"BOM project {pid} not found in your tenant — {len(rows)} row(s) skipped")
+            continue
+        merged, merge_errors = merge_bom_rows(project, rows)
+        errors.extend(merge_errors)
+        created["bom_items"] += len(merged)
 
     # Pass 3: suppliers
     for sheet in staged["sheets"]:
         if sheet["entity"] != "supplier":
             continue
         for row in sheet["rows"]:
-            add_supplier(tenant, SupplierRecord(**row))
-            created["suppliers"] += 1
+            # Same governance as POST /api/vendors: a buyer's rows wait for a
+            # procurement head; a head's rows apply (and are recorded).
+            reply = gate_vendor(SupplierRecord(**row), user)
+            if reply.status == "applied":
+                created["suppliers"] += 1
+            else:
+                created["suppliers_pending_approval"] += 1
             refs.append(row["name"])
 
     del _STAGING[staging_id]
