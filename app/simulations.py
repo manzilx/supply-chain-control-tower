@@ -17,6 +17,8 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
+from pydantic import ValidationError
+
 from .planning import get_bom, list_projects
 from .sample_data import build_demo_request
 from .schemas import (
@@ -783,17 +785,19 @@ def build_simulation_brief(result: SimulationResult) -> SimulationBrief:
         "\"watch\": 1-2 short strings}."
     )
     parsed = grok_json(system, _json.dumps(context, default=str), max_tokens=500, timeout=20)
-    if not parsed or not parsed.get("why"):
+    # Model output is untrusted: wrong types fall back field by field (a list
+    # here is unhashable in the membership checks below).
+    if not parsed or not isinstance(parsed.get("why"), str) or not parsed["why"].strip():
         return fallback
     action = parsed.get("primary_action")
-    if action not in _ALLOWED_ACTIONS:
+    if not isinstance(action, str) or action not in _ALLOWED_ACTIONS:
         action = fallback.primary_action
-    ref = parsed.get("action_ref") or fallback.action_ref
-    if ref and ref not in allowed_refs:
+    ref = parsed.get("action_ref")
+    if not isinstance(ref, str) or ref not in allowed_refs:
         ref = fallback.action_ref
     watch = parsed.get("watch") if isinstance(parsed.get("watch"), list) else fallback.watch
     return SimulationBrief(
-        why=str(parsed["why"]).strip(),
+        why=parsed["why"].strip(),
         primary_action=action,  # type: ignore[arg-type]
         action_ref=ref,
         watch=[str(w) for w in watch][:3],
@@ -959,13 +963,18 @@ def parse_simulation_ask(ask: str, tenant_id: Optional[str] = None) -> ParseSimu
         })
         raw = grok_json(system, user, max_tokens=300, timeout=15)
         if raw and raw.get("ok") and raw.get("scenario") and raw.get("target"):
-            parsed = ParseSimulationReply(
-                ok=True,
-                scenario=raw.get("scenario"),
-                target=raw.get("target"),
-                alternate_vendor=raw.get("alternate_vendor"),
-                custom_slip_days=raw.get("custom_slip_days"),
-            )
+            # Model output is untrusted: an off-list scenario or a non-numeric
+            # slip must fall back to the rule parser, not 500.
+            try:
+                parsed = ParseSimulationReply(
+                    ok=True,
+                    scenario=raw.get("scenario"),
+                    target=raw.get("target"),
+                    alternate_vendor=raw.get("alternate_vendor"),
+                    custom_slip_days=raw.get("custom_slip_days"),
+                )
+            except ValidationError:
+                parsed = None
 
     if parsed is None:
         parsed = _rule_parse(text, vendors, pos, prs, milestones)

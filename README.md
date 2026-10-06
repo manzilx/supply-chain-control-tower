@@ -62,6 +62,18 @@ make stop && make demo    # scripts/demo.sh auto-sources .env before starting
 
 `.env` is gitignored. The orchestrator (`scripts/demo.sh`) auto-loads it before launching the backend + frontend, so child processes pick up every variable.
 
+**Check it's live:** ask the `/agent` page anything, then:
+
+```bash
+TOKEN=$(curl -s -X POST localhost:8010/api/auth/login -H 'content-type: application/json' \
+  -d '{"user_id":"northwind-head-01"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+curl -s localhost:8010/api/ai/status -H "Authorization: Bearer $TOKEN"
+```
+
+`"enabled": true` with `stats.calls` rising and `stats.errors` at 0 means DeepSeek is answering. AI panels also label their source (`DEEPSEEK` vs `DETERMINISTIC`). A bad key or unreachable API shows up as `stats.errors` climbing while every surface quietly keeps working on templates.
+
+Model replies are treated as untrusted: a reply with the wrong shape (off-list enum, list where text was expected, non-JSON) falls back to the deterministic answer for that panel instead of erroring.
+
 **What turns on with the key:**
 
 | Surface | What the LLM generates |

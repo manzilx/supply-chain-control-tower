@@ -36,13 +36,14 @@ from .schemas import (
 # ---------------------------------------------------------------------------
 
 
-def bom_autofill(project_id: str) -> BOMAutofillReply:
+def bom_autofill(project_id: str, tenant_id: str) -> BOMAutofillReply:
     """Propose category + supplier_name for BOM rows missing them.
 
     The frontend can present these as suggestions for the buyer to accept.
+    Suggestions come from the tenant's own supplier master.
     """
 
-    items = get_bom(project_id)
+    items = get_bom(project_id, tenant_id=tenant_id)
     sparse = [i for i in items if (not i.category) or (not i.supplier_name)]
     if not sparse:
         return BOMAutofillReply(
@@ -52,7 +53,7 @@ def bom_autofill(project_id: str) -> BOMAutofillReply:
             generated_at=datetime.now(timezone.utc),
         )
 
-    suppliers = build_demo_request().suppliers
+    suppliers = build_demo_request(tenant_id).suppliers
     supplier_directory = [
         {"name": s.name, "category": s.category, "country": s.country}
         for s in suppliers
@@ -253,10 +254,14 @@ def draft_spec_request(project_id: str, bom_item_id: str) -> Optional[SpecReques
 # ---------------------------------------------------------------------------
 
 
-def explain_entity(request: ExplainRequest) -> ExplainReply:
-    """Build a 'what should I know about this' brief over a single entity."""
+def explain_entity(request: ExplainRequest, tenant_id: str) -> ExplainReply:
+    """Build a 'what should I know about this' brief over a single entity.
 
-    payload, deterministic_fallback = _gather_context(request)
+    Lookups are scoped to `tenant_id`: another tenant's PO or project reads as
+    not found, and never reaches the prompt.
+    """
+
+    payload, deterministic_fallback = _gather_context(request, tenant_id)
 
     if not payload:
         return ExplainReply(
@@ -282,13 +287,16 @@ def explain_entity(request: ExplainRequest) -> ExplainReply:
             f"Data:\n" + _json.dumps(payload, default=str, indent=2)
         )
         parsed = grok_json(system, user, max_tokens=700)
-        if parsed and parsed.get("headline") and parsed.get("body"):
-            bullets = parsed.get("bullets") or []
+        headline = parsed.get("headline") if parsed else None
+        body = parsed.get("body") if parsed else None
+        if isinstance(headline, str) and headline.strip() and isinstance(body, str) and body.strip():
+            # A string here would otherwise be split into one bullet per character.
+            bullets = parsed.get("bullets") if isinstance(parsed.get("bullets"), list) else []
             return ExplainReply(
                 kind=request.kind,
                 id=request.id,
-                headline=str(parsed["headline"])[:140],
-                body=str(parsed["body"]),
+                headline=headline.strip()[:140],
+                body=body.strip(),
                 bullets=[str(b) for b in bullets][:6],
                 source=llm_source(),
                 generated_at=datetime.now(timezone.utc),
@@ -305,7 +313,7 @@ def explain_entity(request: ExplainRequest) -> ExplainReply:
     )
 
 
-def _gather_context(request: ExplainRequest):
+def _gather_context(request: ExplainRequest, tenant_id: str):
     """Look up the entity and return (data_payload, deterministic_fallback_dict).
 
     Returns (None, _) if the entity is not found.
@@ -317,7 +325,7 @@ def _gather_context(request: ExplainRequest):
     if kind == "po":
         # First look at the legacy scenario POs, then sourcing POs
         from .sourcing import get_po as _get_sourcing_po
-        sp = _get_sourcing_po(eid)
+        sp = _get_sourcing_po(eid, tenant_id=tenant_id)
         if sp:
             payload = sp.model_dump()
             payload["_kind"] = "sourcing_po"
@@ -338,7 +346,7 @@ def _gather_context(request: ExplainRequest):
             }
             return payload, fb
         legacy = next(
-            (p for p in build_demo_request().purchase_orders if p.po_number == eid),
+            (p for p in build_demo_request(tenant_id).purchase_orders if p.po_number == eid),
             None,
         )
         if legacy:
@@ -363,7 +371,7 @@ def _gather_context(request: ExplainRequest):
 
     if kind == "vendor":
         from .vendor_intel import get_vendor_scorecard
-        sc = get_vendor_scorecard(eid)
+        sc = get_vendor_scorecard(eid, tenant_id=tenant_id)
         if not sc:
             return None, None
         payload = sc.model_dump()
@@ -386,10 +394,10 @@ def _gather_context(request: ExplainRequest):
         return payload, fb
 
     if kind == "project":
-        proj = next((p for p in list_projects() if p.project_id == eid), None)
+        proj = next((p for p in list_projects(tenant_id=tenant_id) if p.project_id == eid), None)
         if not proj:
             return None, None
-        bom = get_bom(eid)
+        bom = get_bom(eid, tenant_id=tenant_id)
         long_lead = [i for i in bom if (i.long_lead_days or 0) >= 365]
         missing = [i for i in bom if not i.spec_doc_id]
         payload = {
@@ -421,7 +429,7 @@ def _gather_context(request: ExplainRequest):
     if kind == "risk":
         # The id is the risk title; analyzer is stateless so we re-run.
         from .analytics import analyze_supply_chain
-        analyzed = analyze_supply_chain(build_demo_request(), ai_response="")
+        analyzed = analyze_supply_chain(build_demo_request(tenant_id), ai_response="")
         risk = next((r for r in analyzed.top_risks if r.title == eid), None)
         if not risk:
             return None, None
@@ -441,10 +449,10 @@ def _gather_context(request: ExplainRequest):
 
     if kind == "rfq":
         from .sourcing import get_rfq, get_quotes
-        rfq = get_rfq(eid)
+        rfq = get_rfq(eid, tenant_id=tenant_id)
         if not rfq:
             return None, None
-        quotes = get_quotes(eid)
+        quotes = get_quotes(eid, tenant_id=tenant_id)
         payload = {"rfq": rfq.model_dump(), "quotes": [q.model_dump() for q in quotes]}
         fb = {
             "headline": f"RFQ {rfq.rfq_no} — {rfq.code} — {rfq.status}",
@@ -464,7 +472,7 @@ def _gather_context(request: ExplainRequest):
 
     if kind == "pr":
         from .sourcing import get_pr
-        pr = get_pr(eid)
+        pr = get_pr(eid, tenant_id=tenant_id)
         if not pr:
             return None, None
         payload = pr.model_dump()
