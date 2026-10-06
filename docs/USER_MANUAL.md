@@ -446,8 +446,11 @@ Every AI feature has two paths: **DeepSeek-powered** (when `DEEPSEEK_API_KEY` is
 
 ### Setup
 
+Sign in as an **admin** → open **SAP / Integrations** → paste the DeepSeek API key → **Save key**. The key never comes back in API responses (status shows only `••••` + last 4).
+
+Or via env:
+
 ```bash
-cd /Users/manzils/supply-chain-control-tower
 cp .env.example .env
 # edit .env: set DEEPSEEK_API_KEY=sk-...
 make stop && make demo
@@ -461,25 +464,38 @@ make stop && make demo
 |---|---|
 | `/overview` | Executive prose brief at the top of the page |
 | `/agent` | Tool-calling chat with markdown + structured table rendering |
+| ⌘J Copilot | Page-aware slide-out chat (same agent; SSE streaming) |
 | `/risks` | "Mitigations" toggle on every row → 3 concrete actions |
 | `/risks` | "Explain" button on every row → headline + body + bullets |
 | `/vendors/[name]` | AI risk briefing section above the scorecard |
 | `/projects/[id]` | "Explain project" button (top right of header) |
-| `/simulate` | 2-paragraph executive narrative below the simulation headline |
+| `/projects/[id]/bom` | **Fix gaps / Autofill** — category + supplier suggestions, apply in-place |
+| `/simulate` | Decision brief + optional executive narrative; ask-a-what-if parse box |
 | `/weekly-plan` | AI synthesis card between KPI snapshot and items |
+| `/store/grn-triage` | "Explain this GRN" brief (does **not** auto-match or post stock) |
 | Sourcing — award flow | DeepSeek-generated award rationale (cited diffs) |
+| Sourcing — TBE | AI technical bid evaluation scores with deterministic fallback |
 | Expediting — follow-up email | DeepSeek-drafted email body (tone-aware) |
+| Ingest | One LLM pass to map leftover spreadsheet columns |
+
+### Hard rules (so AI cannot post the wrong stock or invent an approval)
+
+- **DeepSeek is the only LLM.** `XAI_API_KEY` / Grok is ignored. Missing `DEEPSEEK_API_KEY` or a failed call → deterministic templates. Every response carries `source: "deepseek" | "deterministic"`.
+- **GRN photo extraction is off** on `deepseek-v4-flash` (text-only; image parts return HTTP 400). Receipts take the skipped/manual-keying path. Do not set `DEEPSEEK_VISION=1` unless `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` point at a vision-capable endpoint.
+- **The PO matcher is not an LLM.** Auto / suggested / unmatched bands are deterministic. A human must confirm before stock posts. The agent can *list* the GRN queue and *explain* a receipt; it cannot invent a PO match.
+- **Approvals are read-only for the agent.** `get_pending_approvals` reports the queue. Decide on `/approvals`.
 
 ### AI features available via API
 
 | Endpoint | What it does |
 |---|---|
-| `POST /api/explain` `{kind, id}` | "What should I know" brief for PO / vendor / risk / project / RFQ / PR |
+| `POST /api/explain` `{kind, id}` | "What should I know" brief for PO / vendor / risk / project / RFQ / PR / GRN |
 | `POST /api/risks/mitigations` `RiskRecord` | 3 concrete mitigations for one risk |
 | `GET /api/vendors/intel/{name}/briefing` | Full vendor briefing (headline + body + watchlist) |
 | `POST /api/projects/{id}/bom/autofill` | Proposes category + supplier for sparse BOM rows |
 | `POST /api/projects/{id}/bom/{bom_id}/spec-request` | Drafts an email to engineering for a missing-spec BOM item |
-| `POST /api/chat` `{message, history}` | Conversational agent with tool-calling |
+| `POST /api/chat` `{message, history, page}` | Conversational agent with tool-calling (includes `get_pending_approvals`, `get_grn_queue`) |
+| `GET /api/ai/status` | Provider, model, vision flag, call stats |
 
 ### Switching back to deterministic
 
@@ -550,12 +566,10 @@ Remove `DEEPSEEK_API_KEY` from `.env` (or set it to empty) and restart. Every en
 ### Workflow F — Filling sparse BOM data (AI auto-fill)
 
 1. Open the BOM tab of a project where rows are missing category or supplier
-2. (For now via API) `POST /api/projects/{id}/bom/autofill`
-3. Returns a list of suggestions per sparse row: code, current values, suggested category, suggested supplier, reason
-4. Review suggestions
-5. To apply: re-upload a CSV with the suggested values + the existing `bom_item_id`s
-
-(A UI for this is on the roadmap; the API works today.)
+2. Click **Fix gaps / Autofill** (top right; requires BOM edit permission)
+3. Review suggested category + supplier per sparse row (DeepSeek when the key is set, otherwise directory heuristics)
+4. Apply one row or apply all — writes go through `PATCH` on the existing `bom_item_id`
+5. Re-open the grid; status / procurement plan refresh from the updated lines
 
 ---
 
@@ -568,6 +582,7 @@ Remove `DEEPSEEK_API_KEY` from `.env` (or set it to empty) and restart. Every en
 | `DEEPSEEK_API_KEY` | _(unset)_ | Required to enable DeepSeek. Without it, all AI features fall back to deterministic templates. |
 | `DEEPSEEK_MODEL` | `deepseek-v4-flash` | Model ID. Use `deepseek-v4-pro` for heavier jobs. |
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | DeepSeek API endpoint. |
+| `DEEPSEEK_VISION` | off | Do **not** enable against flash — image parts 400. Only if the base URL/model is vision-capable. |
 | `BACKEND_PORT` | `8010` | Backend port. |
 | `FRONTEND_PORT` | `3001` | Frontend port. |
 | `ALLOWED_ORIGINS` | _(regex match for localhost)_ | CORS allowlist. |

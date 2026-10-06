@@ -23,7 +23,7 @@ def test_vision_off_by_default(monkeypatch) -> None:
     monkeypatch.setenv("DEEPSEEK_API_KEY", "ds-test")
     monkeypatch.delenv("DEEPSEEK_VISION", raising=False)
     assert llm.vision_enabled() is False
-    assert llm.grok_vision_json("s", "u", "/nonexistent.jpg") is None
+    assert llm.vision_json("s", "u", "/nonexistent.jpg") is None
 
     monkeypatch.setenv("DEEPSEEK_VISION", "1")
     assert llm.vision_enabled() is True
@@ -72,3 +72,30 @@ def test_chat_completions_posts_to_deepseek(monkeypatch) -> None:
     assert parsed is not None
     assert captured["url"] == "https://api.deepseek.com/chat/completions"
     assert captured["auth"] == "Bearer ds-test"
+
+
+def test_grok_helpers_are_gone() -> None:
+    """Live code must not expose a Grok/xAI-named API."""
+    import inspect
+    from datetime import datetime, timezone
+
+    from app import agent as agent_mod
+    from app import llm as llm_mod
+    from app.schemas import TechnicalEvaluation
+
+    src = inspect.getsource(llm_mod)
+    assert "api.x.ai" not in src
+    assert "XAI_" not in src
+    for name in ("grok_chat", "grok_json", "grok_vision_json"):
+        assert not hasattr(llm_mod, name)
+    assert not hasattr(agent_mod, "dispatch_grok")
+    assert callable(agent_mod.dispatch_llm)
+
+    ev = TechnicalEvaluation(
+        rfq_no="RFQ-1",
+        quote_id="Q-1",
+        vendor="Test",
+        source="grok",  # type: ignore[arg-type]
+        evaluated_at=datetime.now(timezone.utc),
+    )
+    assert ev.source == "deepseek"

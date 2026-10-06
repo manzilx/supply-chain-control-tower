@@ -378,13 +378,13 @@ def list_category_concentration(tenant_id: Optional[str] = None) -> List[Categor
 def build_vendor_briefing(name: str, tenant_id: Optional[str] = None):
     """Generate a risk briefing for a single vendor.
 
-    Tries Grok (source='grok'); falls back to deterministic summary
+    Tries DeepSeek (source='deepseek'); falls back to deterministic summary
     (source='deterministic'). Returns None if the vendor isn't known.
     """
 
     from datetime import datetime as _dt, timezone as _tz
     from .schemas import VendorBriefing
-    from .llm import grok_json, is_enabled, llm_source
+    from .llm import llm_json, is_enabled, llm_source
 
     scorecard = get_vendor_scorecard(name, tenant_id=tenant_id)
     if not scorecard:
@@ -440,7 +440,7 @@ def build_vendor_briefing(name: str, tenant_id: Optional[str] = None):
             "Write the briefing using only this data:\n\n"
             + _json.dumps(context, default=str, indent=2)
         )
-        parsed = grok_json(system, user, max_tokens=700)
+        parsed = llm_json(system, user, max_tokens=700)
         if parsed and isinstance(parsed.get("headline"), str) and isinstance(parsed.get("body"), str):
             watchlist = parsed.get("watchlist") or []
             if not isinstance(watchlist, list):

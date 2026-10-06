@@ -3,10 +3,10 @@
 - bom_autofill        : propose category + supplier for BOM rows missing them
 - draft_spec_request  : email to engineering for a missing-spec BOM item
 - explain_entity      : generic 'what should I know' brief over any entity
-                        (PO, vendor, risk, project, RFQ, PR)
+                        (PO, vendor, risk, project, RFQ, PR, GRN)
 - propose_vendor_onboarding : submit new vendor through approval gate
 
-Each function tries Grok and falls back to deterministic output, returning a
+Each function tries DeepSeek and falls back to deterministic output, returning a
 typed schema with `source` indicating which path was used.
 """
 
@@ -16,7 +16,7 @@ import json as _json
 from datetime import datetime, timezone
 from typing import Optional
 
-from .llm import grok_chat, grok_json, is_enabled, llm_source
+from .llm import llm_chat, llm_json, is_enabled, llm_source
 from .planning import get_bom, get_project, list_projects
 from .sample_data import build_demo_request
 from .schemas import (
@@ -86,7 +86,7 @@ def bom_autofill(project_id: str, tenant_id: str) -> BOMAutofillReply:
             "\"suggested_supplier\": str|null, \"reason\": str}]}"
         )
         user = "Match these BOM rows:\n" + _json.dumps(context, default=str, indent=2)
-        parsed = grok_json(system, user, max_tokens=2000, timeout=45)
+        parsed = llm_json(system, user, max_tokens=2000, timeout=45)
         if parsed and isinstance(parsed.get("suggestions"), list):
             by_id = {i.bom_item_id: i for i in sparse}
             suggestions = []
@@ -208,7 +208,7 @@ def draft_spec_request(project_id: str, bom_item_id: str) -> Optional[SpecReques
             "'Best regards,' and 'Procurement — Control Tower'. Plain prose, no markdown."
         )
         user = "Draft the email body using only this data:\n" + _json.dumps(context, default=str, indent=2)
-        body = grok_chat(system, user, max_tokens=500, temperature=0.3, timeout=25)
+        body = llm_chat(system, user, max_tokens=500, temperature=0.3, timeout=25)
         if body:
             return SpecRequestReply(
                 bom_item_id=item.bom_item_id,
@@ -261,7 +261,7 @@ def explain_entity(request: ExplainRequest, tenant_id: str) -> ExplainReply:
     not found, and never reaches the prompt.
     """
 
-    payload, deterministic_fallback = _gather_context(request, tenant_id)
+    payload, deterministic_fallback = _gather_context(request, tenant_id=tenant_id)
 
     if not payload:
         return ExplainReply(
@@ -286,7 +286,7 @@ def explain_entity(request: ExplainRequest, tenant_id: str) -> ExplainReply:
             f"Entity kind: {request.kind}\nEntity id: {request.id}\n\n"
             f"Data:\n" + _json.dumps(payload, default=str, indent=2)
         )
-        parsed = grok_json(system, user, max_tokens=700)
+        parsed = llm_json(system, user, max_tokens=700)
         headline = parsed.get("headline") if parsed else None
         body = parsed.get("body") if parsed else None
         if isinstance(headline, str) and headline.strip() and isinstance(body, str) and body.strip():
@@ -488,6 +488,71 @@ def _gather_context(request: ExplainRequest, tenant_id: str):
                 f"Buyer: {pr.buyer}",
                 f"Strategy: {pr.strategy}",
                 f"Status: {pr.status}",
+            ],
+        }
+        return payload, fb
+
+    if kind == "grn":
+        if not tenant_id:
+            return None, None
+        import sqlite3
+
+        from .store.db import connect
+        from .store.grn import get_grn_detail
+
+        try:
+            conn = connect()
+            try:
+                row = conn.execute(
+                    "SELECT grn_id FROM grn WHERE tenant_id = ? AND (grn_id = ? OR grn_no = ?)",
+                    (tenant_id, eid, eid),
+                ).fetchone()
+            finally:
+                conn.close()
+        except sqlite3.OperationalError:
+            return None, None
+        if not row:
+            return None, None
+        detail = get_grn_detail(row["grn_id"], tenant_id)
+        lines = [
+            {
+                "line_no": ln.line_no,
+                "description": ln.description_raw,
+                "qty_received": ln.qty_received,
+                "match_status": ln.match_status,
+                "po_no": ln.po_no,
+            }
+            for ln in detail.lines
+        ]
+        unmatched = sum(1 for ln in detail.lines if ln.match_status in ("unmatched", "suggested"))
+        payload = {
+            "grn_id": detail.grn_id,
+            "grn_no": detail.grn_no,
+            "status": detail.status,
+            "vendor": detail.vendor_name or detail.vendor_name_raw,
+            "challan_no": detail.challan_no,
+            "extraction_status": detail.extraction_status,
+            "line_count": len(detail.lines),
+            "unmatched_or_suggested": unmatched,
+            "lines": lines,
+        }
+        fb = {
+            "headline": (
+                f"GRN {detail.grn_no or detail.grn_id} — {detail.status} — "
+                f"{detail.vendor_name or detail.vendor_name_raw or 'unknown vendor'}"
+            ),
+            "body": (
+                f"Site receipt {detail.grn_no or detail.grn_id} is {detail.status} "
+                f"({detail.extraction_status or 'no'} extraction). "
+                f"{len(detail.lines)} line(s), {unmatched} still need a human PO match. "
+                "AI does not auto-post stock; confirm on /store/grn-triage."
+            ),
+            "bullets": [
+                f"Status: {detail.status}",
+                f"Vendor: {detail.vendor_name or detail.vendor_name_raw or '—'}",
+                f"Challan: {detail.challan_no or '—'}",
+                f"Extraction: {detail.extraction_status or '—'}",
+                f"Lines needing match: {unmatched}/{len(detail.lines)}",
             ],
         }
         return payload, fb

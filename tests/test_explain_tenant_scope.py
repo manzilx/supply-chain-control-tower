@@ -62,7 +62,7 @@ def test_bom_autofill_offers_only_tenant_suppliers(
 
     # ai_actions binds these at import time, so patch them where they're used.
     with patch("app.ai_actions.is_enabled", return_value=True), patch(
-        "app.ai_actions.grok_json", side_effect=capture
+        "app.ai_actions.llm_json", side_effect=capture
     ):
         res = client.post("/api/projects/PRJ-NS-OSS/bom/autofill", headers=login("helios-head-01"))
     assert res.status_code == 200

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { EmptyState } from "@/components/empty-state";
+import { ExplainButton } from "@/components/explain-button";
 import { PageHeader } from "@/components/page-header";
 import { Skeleton, SkeletonCard } from "@/components/skeleton";
 import {
@@ -310,7 +311,10 @@ function GrnDetailPanel({
             {grn.source_kind.replace(/_/g, " ")} · {formatTimestamp(grn.observed_at)}
           </div>
         </div>
-        <span className={`badge ${STATUS_TONE[grn.status]}`}>{grn.status}</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`badge ${STATUS_TONE[grn.status]}`}>{grn.status}</span>
+          <ExplainButton kind="grn" id={grn.grn_id} label="Explain this GRN" />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)] gap-4 items-start">

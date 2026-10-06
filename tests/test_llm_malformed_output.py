@@ -17,13 +17,13 @@ from fastapi.testclient import TestClient
 def model_replies(reply: dict):
     """Pretend DeepSeek is configured and answers every JSON call with `reply`.
 
-    ai_actions binds grok_json / is_enabled at import time, so patch it
+    ai_actions binds llm_json / is_enabled at import time, so patch it
     directly as well as app.llm (which simulations import from per call).
     """
     with ExitStack() as stack:
         for target in ("app.llm", "app.ai_actions"):
             stack.enter_context(patch(f"{target}.is_enabled", return_value=True))
-            stack.enter_context(patch(f"{target}.grok_json", return_value=reply))
+            stack.enter_context(patch(f"{target}.llm_json", return_value=reply))
         yield
 
 

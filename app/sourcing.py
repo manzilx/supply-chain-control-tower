@@ -762,7 +762,7 @@ def build_timeline(po_no: str, tenant_id: Optional[str] = None) -> Optional[Sour
     return SourcingTimeline(po_no=po_no, events=events)
 
 
-# --- LLM helpers (Grok-driven prose) -----------------------------------------
+# --- LLM helpers (DeepSeek-driven prose) -------------------------------------
 
 
 def _llm_award_rationale(
@@ -772,14 +772,14 @@ def _llm_award_rationale(
     winner: Quote,
     comparison: Optional[QuoteComparison],
 ) -> Optional[str]:
-    """Generate a 100-150 word award rationale via Grok.
+    """Generate a 100-150 word award rationale via DeepSeek.
 
     Cites concrete diffs (price gap, lead-time gap, OTD score) and any risk
     flags on the winner. Returns None on failure so caller can fall back to
     the templated comparison rationale.
     """
 
-    from .llm import grok_chat, is_enabled
+    from .llm import llm_chat, is_enabled
     from .vendor_intel import get_vendor_scorecard
 
     if not is_enabled():
@@ -843,7 +843,7 @@ def _llm_award_rationale(
         "Write the award rationale for this RFQ. Data follows:\n\n"
         + _json.dumps(summary, default=str, indent=2)
     )
-    return grok_chat(system, user, max_tokens=250, temperature=0.3, timeout=25)
+    return llm_chat(system, user, max_tokens=250, temperature=0.3, timeout=25)
 
 
 # --- SAP CPI submission ------------------------------------------------------

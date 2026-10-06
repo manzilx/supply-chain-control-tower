@@ -118,7 +118,7 @@ async def run_extraction(grn_id: str) -> None:
     finally:
         conn.close()
 
-    result = await asyncio.to_thread(llm.grok_vision_json, SYSTEM_PROMPT, USER_PROMPT, photo_path)
+    result = await asyncio.to_thread(llm.vision_json, SYSTEM_PROMPT, USER_PROMPT, photo_path)
 
     conn = connect()
     try:

@@ -38,7 +38,7 @@ def _encode_vendor(name: str) -> str:
 
 
 def _is_entity_ref(ref: str) -> bool:
-    return ref.startswith(("vendor:", "project:", "category:", "RFQ-", "PR-", "SPO-", "PO-"))
+    return ref.startswith(("vendor:", "project:", "category:", "approval:", "grn:", "RFQ-", "PR-", "SPO-", "PO-"))
 
 
 def _extract_project_id(refs: List[str]) -> Optional[str]:
@@ -63,6 +63,10 @@ def _ref_href(ref: str, project_id: Optional[str] = None) -> Optional[str]:
         return f"/vendors/{_encode_vendor(ref.split(':', 1)[1])}"
     if ref.startswith("project:"):
         return f"/projects/{ref.split(':', 1)[1]}"
+    if ref.startswith("approval:"):
+        return "/approvals"
+    if ref.startswith("grn:"):
+        return "/store/grn-triage"
     if ref.startswith("category:"):
         return None
     if ref.startswith("RFQ-"):
@@ -77,6 +81,11 @@ def _ref_href(ref: str, project_id: Optional[str] = None) -> Optional[str]:
 
 
 def _resolve_item_href(category: WeeklyCategory, refs: List[str]) -> Optional[str]:
+    if any(ref.startswith("approval:") for ref in refs):
+        return "/approvals"
+    if any(ref.startswith("grn:") for ref in refs):
+        return "/store/grn-triage"
+
     project_id = _extract_project_id(refs)
     bom_item_id = _extract_bom_item_id(refs)
 
@@ -132,6 +141,11 @@ def _resolve_primary_action(
 ) -> Optional[str]:
     if not href:
         return None
+
+    if any(ref.startswith("approval:") for ref in refs):
+        return "Open approvals"
+    if any(ref.startswith("grn:") for ref in refs):
+        return "Open GRN triage"
 
     if category == "expediting":
         return "Open PO" if href == "/pos" else "Open expediting"
@@ -313,8 +327,8 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
                 )
             )
 
-    # 5. Sourcing — RFQs awaiting quotes or award
-    for rfq in list_rfqs():
+    # 5. Sourcing — RFQs awaiting quotes or award (tenant-scoped; None = all)
+    for rfq in list_rfqs(tenant_id=tenant_id):
         if rfq.status in {"open", "quotes_received"}:
             items.append(
                 _make_item(
@@ -333,6 +347,58 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
                 )
             )
 
+    # 5b. Governance — pending approvals (heads see the queue on the weekly plan)
+    pending_n = 0
+    grn_n = 0
+    if tenant_id:
+        from .approvals import list_approvals
+
+        pending = [a for a in list_approvals(tenant_id) if a.status == "pending"]
+        pending_n = len(pending)
+        if pending:
+            items.append(
+                _make_item(
+                    priority="P1",
+                    category="sourcing",
+                    title=f"Decide {len(pending)} pending approval(s)",
+                    why="; ".join(a.title for a in pending[:3]),
+                    expected_impact="Unblocks gated awards, quotes, and vendor onboarding.",
+                    owner="Procurement Head",
+                    due_in_days=1,
+                    confidence=95,
+                    supporting_refs=[f"approval:{a.approval_id}" for a in pending[:5]],
+                )
+            )
+
+        import sqlite3
+
+        try:
+            from .store.grn import list_grns
+
+            grn_queue = list_grns(tenant_id, triage=True)
+        except sqlite3.OperationalError:
+            grn_queue = []
+        needs_match = [g for g in grn_queue if g.status in ("triage", "suggested")]
+        grn_n = len(needs_match)
+        if needs_match:
+            items.append(
+                _make_item(
+                    priority="P1",
+                    category="logistics",
+                    title=f"Match {len(needs_match)} site GRN(s) to open POs",
+                    why=(
+                        "Receipts in triage/suggested are not posted until a human confirms "
+                        "the PO match. The matcher never auto-posts, and photo extraction is "
+                        "off on the default text-only model."
+                    ),
+                    expected_impact="Stock and PO delivery stay accurate; unmatched challans never hit the wrong order.",
+                    owner="Site Store",
+                    due_in_days=1,
+                    confidence=90,
+                    supporting_refs=[f"grn:{g.grn_id}" for g in needs_match[:5]],
+                )
+            )
+
     # 6. Logistics — shipments at customs / port
     for s in queue.items:
         if s.source == "scenario":
@@ -344,8 +410,14 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
     priority_key = {"P1": 0, "P2": 1, "P3": 2}
     items.sort(key=lambda i: (priority_key[i.priority], -i.confidence))
 
-    # Cap to 10 items
-    items = items[:10]
+    # Live approval/GRN queues must not be dropped by the 10-item cap — those
+    # are the surfaces the agent and weekly AI narrative would otherwise miss.
+    def _protected(item: WeeklyPlanItem) -> bool:
+        return any(ref.startswith(("approval:", "grn:")) for ref in item.supporting_refs)
+
+    protected = [i for i in items if _protected(i)]
+    rest = [i for i in items if not _protected(i)]
+    items = (protected + rest)[: max(10, len(protected))]
 
     # Headline
     p1_count = sum(1 for i in items if i.priority == "P1")
@@ -392,6 +464,16 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
             value=str(len(scenario.incidents)),
             tone="warn" if scenario.incidents else "good",
         ),
+        KpiSnapshot(
+            label="Pending approvals",
+            value=str(pending_n),
+            tone="bad" if pending_n else "good",
+        ),
+        KpiSnapshot(
+            label="GRN queue",
+            value=str(grn_n),
+            tone="bad" if grn_n else "good",
+        ),
     ]
 
     plan = WeeklyPlan(
@@ -419,7 +501,7 @@ def build_weekly_plan(tenant_id: Optional[str] = None) -> WeeklyPlan:
 def _llm_weekly_narrative(plan: WeeklyPlan) -> Optional[str]:
     """Compose a 2-paragraph executive narrative over the deterministic plan."""
 
-    from .llm import grok_chat, is_enabled
+    from .llm import llm_chat, is_enabled
 
     if not is_enabled():
         return None
@@ -449,4 +531,4 @@ def _llm_weekly_narrative(plan: WeeklyPlan) -> Optional[str]:
         "no headings, no lists. ≤180 words."
     )
     user = "This week's plan:\n" + _json.dumps(summary, default=str, indent=2)
-    return grok_chat(system, user, max_tokens=500, temperature=0.4, timeout=25)
+    return llm_chat(system, user, max_tokens=500, temperature=0.4, timeout=25)

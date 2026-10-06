@@ -827,7 +827,7 @@ def test_extraction_result_discarded_when_confirm_lands_first(
             "lines": [{"description": "model line", "qty": 999, "uom": "EA"}],
         }
 
-    monkeypatch.setattr(llm, "grok_vision_json", _confirm_then_extract)
+    monkeypatch.setattr(llm, "vision_json", _confirm_then_extract)
     asyncio.run(extraction.run_extraction(grn_id))
 
     detail = client.get(f"/api/store/grns/{grn_id}", headers=admin_headers)
